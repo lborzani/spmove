@@ -42,6 +42,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c69d3311-8c6c-4848-99ba-324573aa7c41"
+      }
+    },
+    "owner": "casca0"
   }
 }

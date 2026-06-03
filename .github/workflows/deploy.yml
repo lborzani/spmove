@@ -1,0 +1,52 @@
+name: Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Play Store track'
+        required: true
+        default: 'internal'
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+
+jobs:
+  build-and-submit:
+    name: Build & Submit to Play Store
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build Android (AAB)
+        run: eas build --platform android --profile production --non-interactive
+
+      - name: Submit to Play Store
+        run: |
+          echo '${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}' > /tmp/google-service-account.json
+          eas submit --platform android --profile production --non-interactive \
+            --android-service-account-key-path /tmp/google-service-account.json \
+            --track ${{ github.event.inputs.track || 'internal' }}

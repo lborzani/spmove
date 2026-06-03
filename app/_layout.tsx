@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { setupNotificationHandler, setupAndroidChannel, requestNotificationPermissions } from '@/services/notifications';
+import {
+  setupNotificationHandler,
+  setupAndroidChannel,
+  requestNotificationPermissions,
+} from '@/services/notifications';
 import { registerBackgroundTask } from '@/services/backgroundTask';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -21,16 +25,13 @@ SplashScreen.preventAutoHideAsync();
 
 const ONBOARDED_KEY = 'linha_onboarded';
 
-// Configuração do QueryClient:
-// - status: polling a cada 5min (interval da API)
-// - ocorrencias: stale 5min, não refetch em background por causa do rate limit 1/5min
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 2,
       retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 30_000),
-      staleTime: 5 * 60 * 1000,       // 5 min
-      gcTime:    10 * 60 * 1000,      // 10 min no cache
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
     },
   },
 });
@@ -79,12 +80,14 @@ function AppNavigator() {
           headerShown: false,
           contentStyle: { backgroundColor: theme.bg },
           animation: 'slide_from_right',
-        }}
-      >
+        }}>
         <Stack.Screen name="onboarding" options={{ animation: 'none' }} />
-        <Stack.Screen name="(tabs)"     options={{ animation: 'none' }} />
+        <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
         <Stack.Screen name="line/[id]" />
-        <Stack.Screen name="settings"  options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+        <Stack.Screen
+          name="settings"
+          options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+        />
       </Stack>
     </>
   );

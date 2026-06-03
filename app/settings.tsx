@@ -21,8 +21,9 @@ import type { Line } from '@/constants/data';
 import { LineBadge } from '@/components/LineBadge';
 import { IcoArrowLeft } from '@/components/Icons';
 import {
-  getGlobalEnabled, setGlobalEnabled,
-  getLineEnabled, setLineEnabled,
+  getGlobalEnabled,
+  setGlobalEnabled,
+  setLineEnabled,
   getAllLinePrefs,
 } from '@/constants/notifPrefs';
 import { requestNotificationPermissions } from '@/services/notifications';
@@ -48,13 +49,15 @@ function LineGroup({
           <LineBadge line={l} size={36} />
           <View style={styles.rowInfo}>
             <Text style={styles.rowLabel}>{l.name}</Text>
-            <Text style={styles.rowSub}>{l.net} · Linha {l.num}</Text>
+            <Text style={styles.rowSub}>
+              {l.net} · Linha {l.num}
+            </Text>
           </View>
           <Switch
             value={prefs[l.num] ?? true}
             onValueChange={(val) => onToggle(l.num, val)}
             trackColor={{ false: theme.surface, true: `${theme.accent}55` }}
-            thumbColor={prefs[l.num] ?? true ? theme.accent : theme.textFaint}
+            thumbColor={(prefs[l.num] ?? true) ? theme.accent : theme.textFaint}
           />
         </View>
       ))}
@@ -69,10 +72,10 @@ export default function SettingsScreen() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const [globalEnabled, setGlobal]   = useState(false);
-  const [linePrefs, setLinePrefs]     = useState<Record<string, boolean>>({});
+  const [globalEnabled, setGlobal] = useState(false);
+  const [linePrefs, setLinePrefs] = useState<Record<string, boolean>>({});
   const [permGranted, setPermGranted] = useState(false);
-  const [loaded, setLoaded]           = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -88,22 +91,25 @@ export default function SettingsScreen() {
     })();
   }, []);
 
-  const handleGlobalToggle = useCallback(async (val: boolean) => {
-    if (val && !permGranted) {
-      const granted = await requestNotificationPermissions();
-      if (!granted) {
-        Alert.alert(
-          'Permissão negada',
-          'Ative as notificações nas configurações do sistema para este aplicativo.',
-        );
-        return;
+  const handleGlobalToggle = useCallback(
+    async (val: boolean) => {
+      if (val && !permGranted) {
+        const granted = await requestNotificationPermissions();
+        if (!granted) {
+          Alert.alert(
+            'Permissão negada',
+            'Ative as notificações nas configurações do sistema para este aplicativo.',
+          );
+          return;
+        }
+        setPermGranted(true);
+        await registerBackgroundTask();
       }
-      setPermGranted(true);
-      await registerBackgroundTask();
-    }
-    setGlobal(val);
-    await setGlobalEnabled(val);
-  }, [permGranted]);
+      setGlobal(val);
+      await setGlobalEnabled(val);
+    },
+    [permGranted],
+  );
 
   const handleLineToggle = useCallback(async (num: string, val: boolean) => {
     setLinePrefs((prev) => ({ ...prev, [num]: val }));
@@ -126,7 +132,7 @@ export default function SettingsScreen() {
   }, []);
 
   const metro = (lines ?? []).filter((l) => l.net === 'Metrô');
-  const cptm  = (lines ?? []).filter((l) => l.net === 'CPTM');
+  const cptm = (lines ?? []).filter((l) => l.net === 'CPTM');
 
   return (
     <SafeAreaView style={styles.root}>
@@ -161,30 +167,39 @@ export default function SettingsScreen() {
             <Pressable style={[styles.row, { marginTop: 6 }]} onPress={requestBatteryExemption}>
               <View style={styles.rowInfo}>
                 <Text style={styles.rowLabel}>Otimização de bateria</Text>
-                <Text style={styles.rowSub}>Desative para receber notificações em segundo plano</Text>
+                <Text style={styles.rowSub}>
+                  Desative para receber notificações em segundo plano
+                </Text>
               </View>
-              <Text style={[styles.rowSub, { color: theme.accent, fontWeight: '600' }]}>Configurar</Text>
+              <Text style={[styles.rowSub, { color: theme.accent, fontWeight: '600' }]}>
+                Configurar
+              </Text>
             </Pressable>
           )}
         </View>
 
-        {globalEnabled && loaded && (
-          isLoading ? (
+        {globalEnabled &&
+          loaded &&
+          (isLoading ? (
             <View style={styles.loadingLines}>
               <ActivityIndicator size="small" color={theme.accent} />
             </View>
           ) : (
             <>
-              <LineGroup title="METRÔ" lines={metro} prefs={linePrefs} onToggle={handleLineToggle} />
-              <LineGroup title="CPTM"  lines={cptm}  prefs={linePrefs} onToggle={handleLineToggle} />
+              <LineGroup
+                title="METRÔ"
+                lines={metro}
+                prefs={linePrefs}
+                onToggle={handleLineToggle}
+              />
+              <LineGroup title="CPTM" lines={cptm} prefs={linePrefs} onToggle={handleLineToggle} />
             </>
-          )
-        )}
+          ))}
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>
-            As notificações dependem de busca em segundo plano. O intervalo mínimo
-            é definido pelo sistema operacional (geralmente 15 min no iOS).
+            As notificações dependem de busca em segundo plano. O intervalo mínimo é definido pelo
+            sistema operacional (geralmente 15 min no iOS).
           </Text>
         </View>
       </ScrollView>
@@ -193,16 +208,26 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  root:    { flex: 1, backgroundColor: theme.bg },
+  root: { flex: 1, backgroundColor: theme.bg },
   header: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14,
-    borderBottomWidth: 1, borderBottomColor: theme.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
   },
   backBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
-    alignItems: 'center', justifyContent: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: { color: theme.text, fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
 
@@ -210,28 +235,44 @@ const styles = StyleSheet.create({
 
   section: { paddingHorizontal: 18, paddingTop: 22 },
   sectionTitle: {
-    color: theme.textDim, fontSize: 11, letterSpacing: 1.5,
-    textTransform: 'uppercase', fontWeight: '600', marginBottom: 10,
+    color: theme.textDim,
+    fontSize: 11,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    fontWeight: '600',
+    marginBottom: 10,
   },
 
   row: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
-    borderRadius: theme.radiusCard, padding: 12, marginBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: theme.radiusCard,
+    padding: 12,
+    marginBottom: 6,
   },
-  rowInfo:  { flex: 1, minWidth: 0 },
+  rowInfo: { flex: 1, minWidth: 0 },
   rowLabel: { color: theme.text, fontSize: 14, fontWeight: '600' },
-  rowSub:   { color: theme.textDim, fontSize: 11, marginTop: 1 },
+  rowSub: { color: theme.textDim, fontSize: 11, marginTop: 1 },
 
   permWarning: {
-    color: theme.textDim, fontSize: 11.5, marginTop: 8,
-    paddingHorizontal: 4, lineHeight: 16,
+    color: theme.textDim,
+    fontSize: 11.5,
+    marginTop: 8,
+    paddingHorizontal: 4,
+    lineHeight: 16,
   },
 
   loadingLines: { padding: 24, alignItems: 'center' },
 
   footer: { paddingHorizontal: 22, paddingTop: 28 },
   footerText: {
-    color: theme.textFaint, fontSize: 11, lineHeight: 16, letterSpacing: 0.1,
+    color: theme.textFaint,
+    fontSize: 11,
+    lineHeight: 16,
+    letterSpacing: 0.1,
   },
 });

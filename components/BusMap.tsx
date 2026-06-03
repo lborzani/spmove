@@ -1,9 +1,7 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
-import type { SPStop, SPVehicle } from '@/constants/sptransTypes';
-
-import type { OSMStop } from '@/constants/sptransTypes';
+import type { SPStop, SPVehicle, OSMStop } from '@/constants/sptransTypes';
 
 interface BusMapProps {
   userCoords?: { lat: number; lon: number } | null;
@@ -86,7 +84,6 @@ const HTML = `<!DOCTYPE html>
     try { window.ReactNativeWebView.postMessage(JSON.stringify(data)); } catch(e) {}
   }
 
-  // Signal readiness to React Native after map is initialized
   map.whenReady(function() {
     send({ type: 'ready' });
   });
@@ -201,13 +198,10 @@ const HTML = `<!DOCTYPE html>
   }
 
   function noRouteAvailable() {
-    // OSM doesn't have this line mapped — don't draw a fake route.
-    // Stops are still shown as markers; send a message so UI can show a note.
     send({ type: 'no-route' });
   }
 
-  // Properly chain OSM ways into a continuous path.
-  // Consecutive ways may need to be flipped to connect end-to-start.
+  // Ways in OSM relations may be out of order or reversed — chain them end-to-start.
   function assembleOsmWays(members) {
     var ways = members.filter(function(m) {
       return m.type === 'way' && m.geometry && m.geometry.length > 0
@@ -224,7 +218,6 @@ const HTML = `<!DOCTYPE html>
       var d2first = Math.pow(wc[0][0]-tail[0],2) + Math.pow(wc[0][1]-tail[1],2);
       var d2last  = Math.pow(wc[wc.length-1][0]-tail[0],2) + Math.pow(wc[wc.length-1][1]-tail[1],2);
       if (d2last < d2first) wc = wc.reverse();
-      // skip duplicate junction node
       path = path.concat(wc.slice(1));
     }
     return path;
@@ -320,22 +313,23 @@ export function BusMap({
   const wvRef = useRef<WebView>(null);
   const [ready, setReady] = useState(false);
 
-  // Queue messages that arrive before WebView is ready
   const queue = useRef<object[]>([]);
 
   const inject = useCallback((js: string) => {
     wvRef.current?.injectJavaScript(`(function(){ ${js} })(); true;`);
   }, []);
 
-  const send = useCallback((obj: object) => {
-    if (!ready) {
-      queue.current.push(obj);
-      return;
-    }
-    inject(`handleMsg({ data: ${JSON.stringify(JSON.stringify(obj))} })`);
-  }, [ready, inject]);
+  const send = useCallback(
+    (obj: object) => {
+      if (!ready) {
+        queue.current.push(obj);
+        return;
+      }
+      inject(`handleMsg({ data: ${JSON.stringify(JSON.stringify(obj))} })`);
+    },
+    [ready, inject],
+  );
 
-  // Flush queue when WebView becomes ready
   useEffect(() => {
     if (!ready) return;
     const msgs = queue.current.splice(0);
@@ -360,7 +354,8 @@ export function BusMap({
   }, [vehicles, send]);
 
   useEffect(() => {
-    const hasRoute = (routeStops && routeStops.length > 0) || (routeCoords && routeCoords.length > 0);
+    const hasRoute =
+      (routeStops && routeStops.length > 0) || (routeCoords && routeCoords.length > 0);
     if (!hasRoute) {
       send({ type: 'clear-line' });
       return;
@@ -379,24 +374,27 @@ export function BusMap({
     send({ type: 'pan-to', lat: centerOn.lat, lon: centerOn.lon, zoom: centerOn.zoom ?? 17 });
   }, [centerOn, send]);
 
-  const handleMessage = useCallback((event: { nativeEvent: { data: string } }) => {
-    try {
-      const msg = JSON.parse(event.nativeEvent.data);
-      if (msg.type === 'ready') {
-        setReady(true);
-        return;
-      }
-      if (msg.type === 'stop-tap' && onStopPress) {
-        onStopPress(msg.stop as SPStop);
-      }
-      if (msg.type === 'osm-stop-tap' && onOsmStopPress) {
-        onOsmStopPress(msg.stop as OSMStop);
-      }
-      if (msg.type === 'no-route' && onNoRoute) {
-        onNoRoute();
-      }
-    } catch {}
-  }, [onStopPress, onOsmStopPress, onNoRoute]);
+  const handleMessage = useCallback(
+    (event: { nativeEvent: { data: string } }) => {
+      try {
+        const msg = JSON.parse(event.nativeEvent.data);
+        if (msg.type === 'ready') {
+          setReady(true);
+          return;
+        }
+        if (msg.type === 'stop-tap' && onStopPress) {
+          onStopPress(msg.stop as SPStop);
+        }
+        if (msg.type === 'osm-stop-tap' && onOsmStopPress) {
+          onOsmStopPress(msg.stop as OSMStop);
+        }
+        if (msg.type === 'no-route' && onNoRoute) {
+          onNoRoute();
+        }
+      } catch {}
+    },
+    [onStopPress, onOsmStopPress, onNoRoute],
+  );
 
   return (
     <WebView
