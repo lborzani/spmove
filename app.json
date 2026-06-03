@@ -18,22 +18,27 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#151515"
       },
-      "package": "com.lborzani.spmove"
-    },
-    "ios": {
-      "supportsTablet": false,
-      "bundleIdentifier": "com.lborzani.spmove"
-    },
-    "web": {
-      "favicon": "./assets/favicon.png",
-      "bundler": "metro",
-      "output": "static"
+      "package": "com.lborzani.spmove",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
     },
     "plugins": [
       "expo-router",
       "expo-font",
       "expo-notifications",
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "O SPMove usa sua localização para encontrar linhas de ônibus próximas a você."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

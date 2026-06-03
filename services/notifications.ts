@@ -40,6 +40,7 @@ export async function scheduleNotification(
       body,
       data: data ?? {},
       sound: true,
+      ...(Platform.OS === 'android' ? { channelId: 'line-status' } : {}),
     },
     trigger: null,
   });

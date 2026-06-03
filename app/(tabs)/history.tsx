@@ -16,7 +16,8 @@ import { theme, STATUS_META } from '@/constants/theme';
 import { LINE_META, fetchOcorrencias, todayISO, daysAgoISO } from '@/services/api';
 import type { RichOcorrencia } from '@/constants/data';
 
-// ── Pulse ring para eventos em curso ────────────────────────────────────────
+const SERVICE_START = '04:40';
+const SERVICE_END   = '00:00';
 
 function PulseRing({ color }: { color: string }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -36,54 +37,51 @@ function PulseRing({ color }: { color: string }) {
   );
 }
 
-// ── Tela ─────────────────────────────────────────────────────────────────────
+function dayLabel(isoDate: string): string {
+  const today     = todayISO();
+  const yesterday = daysAgoISO(1);
+  if (isoDate === today)     return 'Hoje';
+  if (isoDate === yesterday) return 'Ontem';
+  const [, m, d] = isoDate.split('-');
+  return `${d}/${m}`;
+}
 
 export default function HistoryScreen() {
-  // Mesma query key que alerts.tsx → cache compartilhado, zero requests extras
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ['ocorrencias', todayISO()],
-    queryFn:  () => fetchOcorrencias(daysAgoISO(1), todayISO()),
+    queryKey: ['ocorrencias-3d', todayISO()],
+    queryFn:  () => fetchOcorrencias(daysAgoISO(2), todayISO()),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 
   const ocorrencias = data ?? [];
 
-  // Ordenar por hora (mais recente primeiro)
-  const sorted = useMemo(
-    () => [...ocorrencias].sort(
-      (a, b) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime(),
-    ),
-    [ocorrencias],
-  );
-
-  // "em curso" = última ocorrência de cada linha que não é "normal"
-  const latestByLine = useMemo(() => {
-    const seen = new Set<string>();
-    const result: RichOcorrencia[] = [];
-    for (const o of sorted) {
-      if (!seen.has(o.lineCode)) {
-        seen.add(o.lineCode);
-        result.push(o);
-      }
+  // Agrupar por dia ISO, cada grupo ordenado mais recente primeiro
+  const byDay = useMemo(() => {
+    const map: Record<string, RichOcorrencia[]> = {};
+    for (const o of ocorrencias) {
+      const day = o.dataHora.split('T')[0];
+      (map[day] ??= []).push(o);
     }
-    return result;
-  }, [sorted]);
+    // Ordena eventos de cada dia por hora desc
+    for (const day of Object.keys(map)) {
+      map[day].sort((a, b) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime());
+    }
+    // Retorna dias ordenados desc (mais recente primeiro)
+    return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
+  }, [ocorrencias]);
 
-  const ongoingCount  = latestByLine.filter((o) => o.status !== 'normal').length;
-  const resolvedCount = sorted.length - ongoingCount;
-
-  const today = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const today = new Date().toLocaleDateString('pt-BR', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  });
 
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>HOJE · {today.toUpperCase()}</Text>
+        <Text style={styles.eyebrow}>ÚLTIMOS 3 DIAS</Text>
         <Text style={styles.title}>Linha do tempo</Text>
         {!isLoading && (
-          <Text style={styles.subtitle}>
-            {ongoingCount} em curso · {resolvedCount} ocorrências registradas
-          </Text>
+          <Text style={styles.subtitle}>{today}</Text>
         )}
       </View>
 
@@ -100,9 +98,9 @@ export default function HistoryScreen() {
             <Text style={styles.retryText}>TENTAR NOVAMENTE</Text>
           </Pressable>
         </View>
-      ) : sorted.length === 0 ? (
+      ) : byDay.length === 0 ? (
         <View style={styles.centered}>
-          <Text style={styles.emptyText}>Sem ocorrências registradas hoje.</Text>
+          <Text style={styles.emptyText}>Sem ocorrências nos últimos 3 dias.</Text>
         </View>
       ) : (
         <ScrollView
@@ -118,74 +116,101 @@ export default function HistoryScreen() {
             />
           }
         >
-          <View style={styles.timeline}>
-            <View style={styles.axis} />
+          {byDay.map(([isoDate, events]) => {
+            const isToday = isoDate === todayISO();
+            const nowH = new Date().getHours();
+            const serviceEnded = !isToday || nowH >= 0 && nowH < 4;
 
-            {sorted.map((o) => {
-              const meta      = STATUS_META[o.status];
-              const lineMeta  = LINE_META[o.lineCode];
-              const isOngoing = o.status !== 'normal';
+            return (
+              <View key={isoDate}>
+                {/* Day header */}
+                <View style={styles.dayHeader}>
+                  <Text style={styles.dayLabel}>{dayLabel(isoDate)}</Text>
+                  <View style={styles.dayDivider} />
+                  <Text style={styles.dayCount}>{events.length} ocorrências</Text>
+                </View>
 
-              return (
-                <View key={o.id} style={styles.row}>
-                  {/* timestamp */}
-                  <View style={styles.timeCol}>
-                    <Text style={styles.timeText}>{o.at}</Text>
-                  </View>
+                <View style={styles.timeline}>
+                  <View style={styles.axis} />
 
-                  {/* node */}
-                  <View style={styles.nodeWrapper}>
-                    {isOngoing && <PulseRing color={meta.color} />}
-                    <View style={[styles.node, { borderColor: meta.color }]} />
-                  </View>
-
-                  {/* card */}
-                  <Pressable
-                    onPress={() => router.push(`/line/${o.lineCode}`)}
-                    style={({ pressed }) => [styles.card, { opacity: pressed ? 0.75 : 1 }]}
-                  >
-                    {/* card header */}
-                    <View style={styles.cardHeader}>
-                      <View style={[styles.lineBadge, { backgroundColor: lineMeta?.color ?? '#888' }]}>
-                        <Text style={styles.lineBadgeText}>{o.lineCode}</Text>
+                  {/* Fim do serviço */}
+                  {serviceEnded && (
+                    <View style={[styles.row, { alignItems: 'center' }]}>
+                      <View style={styles.timeCol}>
+                        <Text style={styles.timeText}>{SERVICE_END}</Text>
                       </View>
-                      <Text style={styles.lineName}>{o.lineName}</Text>
-                      <Text style={styles.lineNet}>{o.net}</Text>
-                      <View style={styles.statusChip}>
-                        {isOngoing ? (
-                          <Text style={[styles.ongoingLabel, {
-                            color: meta.color,
-                            backgroundColor: `${meta.color}1f`,
-                          }]}>
-                            Em curso
-                          </Text>
-                        ) : (
-                          <Text style={styles.resolvedLabel}>Registrado</Text>
-                        )}
+                      <View style={styles.nodeWrapper}>
+                        <View style={[styles.node, { borderColor: theme.textFaint }]} />
+                      </View>
+                      <View style={styles.boundaryMarker}>
+                        <Text style={styles.boundaryText}>FIM DO SERVIÇO</Text>
                       </View>
                     </View>
-                    <Text style={styles.cardTitle}>{o.situacao}</Text>
-                    {o.descricao ? (
-                      <Text style={styles.cardBody} numberOfLines={2}>{o.descricao}</Text>
-                    ) : null}
-                  </Pressable>
-                </View>
-              );
-            })}
+                  )}
 
-            {/* início da operação */}
-            <View style={[styles.row, { alignItems: 'center' }]}>
-              <View style={styles.timeCol}>
-                <Text style={styles.timeText}>04:40</Text>
+                  {/* Eventos */}
+                  {events.map((o) => {
+                    const meta     = STATUS_META[o.status];
+                    const lineMeta = LINE_META[o.lineCode];
+                    const isOngoing = o.status !== 'normal';
+
+                    return (
+                      <View key={o.id} style={styles.row}>
+                        <View style={styles.timeCol}>
+                          <Text style={styles.timeText}>{o.at}</Text>
+                        </View>
+                        <View style={styles.nodeWrapper}>
+                          {isOngoing && <PulseRing color={meta.color} />}
+                          <View style={[styles.node, { borderColor: meta.color }]} />
+                        </View>
+                        <Pressable
+                          onPress={() => router.push(`/line/${o.lineCode}`)}
+                          style={({ pressed }) => [styles.card, { opacity: pressed ? 0.75 : 1 }]}
+                        >
+                          <View style={styles.cardHeader}>
+                            <View style={[styles.lineBadge, { backgroundColor: lineMeta?.color ?? '#888' }]}>
+                              <Text style={styles.lineBadgeText}>{o.lineCode}</Text>
+                            </View>
+                            <Text style={styles.lineName}>{o.lineName}</Text>
+                            <Text style={styles.lineNet}>{o.net}</Text>
+                            <View style={styles.statusChip}>
+                              {isOngoing ? (
+                                <Text style={[styles.ongoingLabel, {
+                                  color: meta.color,
+                                  backgroundColor: `${meta.color}1f`,
+                                }]}>
+                                  Em curso
+                                </Text>
+                              ) : (
+                                <Text style={styles.resolvedLabel}>Registrado</Text>
+                              )}
+                            </View>
+                          </View>
+                          <Text style={styles.cardTitle}>{o.situacao}</Text>
+                          {o.descricao ? (
+                            <Text style={styles.cardBody} numberOfLines={2}>{o.descricao}</Text>
+                          ) : null}
+                        </Pressable>
+                      </View>
+                    );
+                  })}
+
+                  {/* Início do serviço */}
+                  <View style={[styles.row, { alignItems: 'center' }]}>
+                    <View style={styles.timeCol}>
+                      <Text style={styles.timeText}>{SERVICE_START}</Text>
+                    </View>
+                    <View style={styles.nodeWrapper}>
+                      <View style={[styles.node, { borderColor: theme.textFaint }]} />
+                    </View>
+                    <View style={styles.boundaryMarker}>
+                      <Text style={styles.boundaryText}>INÍCIO DO SERVIÇO</Text>
+                    </View>
+                  </View>
+                </View>
               </View>
-              <View style={styles.nodeWrapper}>
-                <View style={[styles.node, { borderColor: theme.textFaint }]} />
-              </View>
-              <View style={styles.startMarker}>
-                <Text style={styles.startMarkerText}>INÍCIO DA OPERAÇÃO · 04:40</Text>
-              </View>
-            </View>
-          </View>
+            );
+          })}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -210,10 +235,17 @@ const styles = StyleSheet.create({
   retryText:   { color: theme.onAccent, fontWeight: '700', fontSize: 12, letterSpacing: 1 },
   emptyText:   { color: theme.textDim, fontSize: 13, textAlign: 'center' },
 
-  timeline: { paddingHorizontal: 18, paddingTop: 16, position: 'relative' },
+  dayHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 18, paddingTop: 20, paddingBottom: 4,
+  },
+  dayLabel:   { color: theme.text, fontSize: 14, fontWeight: '700' },
+  dayDivider: { flex: 1, height: 1, backgroundColor: theme.border },
+  dayCount:   { color: theme.textFaint, fontSize: 11 },
+
+  timeline: { paddingHorizontal: 18, paddingTop: 8, position: 'relative' },
   axis: {
     position: 'absolute',
-    // paddingH(18) + timeCol(40) + gap(8) + metade nodeWrapper(8) - metade eixo(1) = 73
     left: 18 + 40 + 8 + 8 - 1,
     top: 24, bottom: 24, width: 2,
     backgroundColor: theme.border,
@@ -252,11 +284,11 @@ const styles = StyleSheet.create({
   cardTitle:  { color: theme.text, fontSize: 13.5, fontWeight: '600', lineHeight: 18 },
   cardBody:   { color: theme.textDim, fontSize: 12.5, lineHeight: 17, marginTop: 3 },
 
-  startMarker: {
-    flex: 1, backgroundColor: theme.surfaceMuted,
+  boundaryMarker: {
+    flex: 1, backgroundColor: theme.surfaceElev,
     borderWidth: 1, borderColor: theme.border, borderStyle: 'dashed',
     borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14,
     alignItems: 'center', justifyContent: 'center',
   },
-  startMarkerText: { color: theme.textDim, fontSize: 11, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' },
+  boundaryText: { color: theme.textDim, fontSize: 11, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' },
 });

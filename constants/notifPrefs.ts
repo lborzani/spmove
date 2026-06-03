@@ -33,7 +33,7 @@ export async function getAllLinePrefs(nums: string[]): Promise<Record<string, bo
 
 export async function getPrevStatus(): Promise<Record<string, string> | null> {
   const val = await AsyncStorage.getItem(PREV_STATUS_KEY);
-  return val ? JSON.parse(val) : null;
+  try { return val ? JSON.parse(val) : null; } catch { return null; }
 }
 export async function savePrevStatus(status: Record<string, string>) {
   await AsyncStorage.setItem(PREV_STATUS_KEY, JSON.stringify(status));
@@ -41,7 +41,7 @@ export async function savePrevStatus(status: Record<string, string>) {
 
 export async function getPrevOcorrIds(): Promise<number[]> {
   const val = await AsyncStorage.getItem(PREV_OCORR_KEY);
-  return val ? JSON.parse(val) : [];
+  try { return val ? JSON.parse(val) : []; } catch { return []; }
 }
 export async function savePrevOcorrIds(ids: number[]) {
   await AsyncStorage.setItem(PREV_OCORR_KEY, JSON.stringify(ids));

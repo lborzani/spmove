@@ -70,6 +70,30 @@ export function IcoChevronRight({ size = 22, color = '#f6fff4', strokeWidth = 1.
   return <Icon d="M9 6l6 6-6 6" size={size} color={color} strokeWidth={strokeWidth} />;
 }
 
+// GPS crosshair — "locate me"
+export function IcoLocate({ size = 22, color = '#f6fff4', strokeWidth = 1.7 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Circle cx="12" cy="12" r="4" />
+      <Path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+    </Svg>
+  );
+}
+
+// Bus front — "buscar linhas próximas"
+export function IcoBusSearch({ size = 22, color = '#f6fff4', strokeWidth = 1.7 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4" />
+      <Path d="M1 9h16M7 17v2M11 17v2" />
+      <Circle cx="17" cy="17" r="3" />
+      <Path d="M19.3 19.3 21 21" />
+    </Svg>
+  );
+}
+
 export function IcoSettings({ size = 22, color = '#f6fff4', strokeWidth = 1.7 }: IconProps) {
   return <Icon d="M20 7h-9M14 17H5M17 17a3 3 0 1 0 6 0 3 3 0 0 0-6 0zM7 7a3 3 0 1 0 6 0 3 3 0 0 0-6 0z" size={size} color={color} strokeWidth={strokeWidth} />;
 }

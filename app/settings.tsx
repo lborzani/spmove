@@ -8,9 +8,11 @@ import {
   Switch,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import * as IntentLauncher from 'expo-intent-launcher';
 import * as Notifications from 'expo-notifications';
 import { useQuery } from '@tanstack/react-query';
 import { theme } from '@/constants/theme';
@@ -108,6 +110,21 @@ export default function SettingsScreen() {
     await setLineEnabled(num, val);
   }, []);
 
+  const requestBatteryExemption = useCallback(async () => {
+    if (Platform.OS !== 'android') return;
+    try {
+      await IntentLauncher.startActivityAsync(
+        IntentLauncher.ActivityAction.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        { data: 'package:com.lborzani.spmove' },
+      );
+    } catch {
+      Alert.alert(
+        'Não disponível',
+        'Acesse Configurações > Apps > SPMove > Bateria e selecione "Sem restrições".',
+      );
+    }
+  }, []);
+
   const metro = (lines ?? []).filter((l) => l.net === 'Metrô');
   const cptm  = (lines ?? []).filter((l) => l.net === 'CPTM');
 
@@ -139,6 +156,15 @@ export default function SettingsScreen() {
             <Text style={styles.permWarning}>
               Permissão do sistema não concedida. Acesse as configurações do aparelho.
             </Text>
+          )}
+          {Platform.OS === 'android' && (
+            <Pressable style={[styles.row, { marginTop: 6 }]} onPress={requestBatteryExemption}>
+              <View style={styles.rowInfo}>
+                <Text style={styles.rowLabel}>Otimização de bateria</Text>
+                <Text style={styles.rowSub}>Desative para receber notificações em segundo plano</Text>
+              </View>
+              <Text style={[styles.rowSub, { color: theme.accent, fontWeight: '600' }]}>Configurar</Text>
+            </Pressable>
           )}
         </View>
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import { theme } from '@/constants/theme';
-import { IcoHome, IcoBell, IcoHistory } from '@/components/Icons';
+import { IcoHome, IcoBell, IcoHistory, IcoMap } from '@/components/Icons';
 
 interface TabIconProps {
   focused: boolean;
@@ -63,6 +63,14 @@ export default function TabsLayout() {
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon focused={focused} label="Histórico" Icon={IcoHistory} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="onibus"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon focused={focused} label="Ônibus" Icon={IcoMap} />
           ),
         }}
       />

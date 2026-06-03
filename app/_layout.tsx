@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { setupNotificationHandler, setupAndroidChannel } from '@/services/notifications';
+import { setupNotificationHandler, setupAndroidChannel, requestNotificationPermissions } from '@/services/notifications';
 import { registerBackgroundTask } from '@/services/backgroundTask';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -48,6 +48,7 @@ function AppNavigator() {
     setupNotificationHandler();
     setupAndroidChannel();
     registerBackgroundTask();
+    requestNotificationPermissions();
   }, []);
 
   useEffect(() => {
@@ -57,9 +58,14 @@ function AppNavigator() {
   useEffect(() => {
     if (!ready) return;
     (async () => {
-      const done = await AsyncStorage.getItem(ONBOARDED_KEY);
-      await SplashScreen.hideAsync();
-      router.replace(done ? '/(tabs)' : '/onboarding');
+      try {
+        const done = await AsyncStorage.getItem(ONBOARDED_KEY);
+        router.replace(done ? '/(tabs)' : '/onboarding');
+      } catch {
+        router.replace('/onboarding');
+      } finally {
+        await SplashScreen.hideAsync();
+      }
     })();
   }, [ready]);
 
