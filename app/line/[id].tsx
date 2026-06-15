@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -8,11 +8,33 @@ import { theme, STATUS_META } from '@/constants/theme';
 import { STATIONS_FALLBACK, STATION_TRANSFERS } from '@/constants/data';
 import { fetchStatus, fetchOcorrencias, LINE_META, todayISO, daysAgoISO } from '@/services/api';
 import { StatusDot } from '@/components/StatusDot';
-import { IcoArrowLeft } from '@/components/Icons';
+import { IcoArrowLeft, IcoHeart } from '@/components/Icons';
+import { UserReports } from '@/components/UserReports';
+import { getFavorites, toggleFavorite } from '@/constants/favPrefs';
+import { getGlobalEnabled } from '@/constants/notifPrefs';
+import { registerWithBackend } from '@/services/pushRegistration';
+
+type Tab = 'stations' | 'reports';
 
 export default function LineDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const lineCode = id ?? '';
+
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>('stations');
+
+  useEffect(() => {
+    getFavorites().then((favs) => setIsFavorited(favs.includes(lineCode)));
+  }, [lineCode]);
+
+  const handleFavoriteToggle = useCallback(async () => {
+    const newFavs = await toggleFavorite(lineCode);
+    setIsFavorited(newFavs.includes(lineCode));
+    const enabled = await getGlobalEnabled();
+    if (enabled) {
+      registerWithBackend(newFavs).catch(() => null);
+    }
+  }, [lineCode]);
 
   const { data: lines, isLoading: statusLoading } = useQuery({
     queryKey: ['status'],
@@ -66,107 +88,141 @@ export default function LineDetailScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
-        <LinearGradient
-          colors={[line.color, `${line.color}cc`]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={styles.header}>
+      <LinearGradient
+        colors={[line.color, `${line.color}cc`]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={styles.header}>
+        <View style={styles.headerTopRow}>
           <Pressable onPress={() => router.back()} style={styles.backCircle}>
             <IcoArrowLeft size={18} color="#fff" strokeWidth={2.2} />
           </Pressable>
+          <Pressable onPress={handleFavoriteToggle} style={styles.backCircle}>
+            <IcoHeart size={18} color="#fff" filled={isFavorited} strokeWidth={2.2} />
+          </Pressable>
+        </View>
 
-          <View style={styles.lineIdentity}>
-            <View style={[styles.bigBadge, { backgroundColor: line.color }]}>
-              <Text style={styles.bigBadgeNum}>{line.num}</Text>
-            </View>
-            <View>
-              <Text style={styles.headerNet}>
-                {line.net} · LINHA {line.num}
-              </Text>
-              <Text style={styles.headerName}>{line.name}</Text>
-            </View>
+        <View style={styles.lineIdentity}>
+          <View style={[styles.bigBadge, { backgroundColor: line.color }]}>
+            <Text style={styles.bigBadgeNum}>{line.num}</Text>
           </View>
+          <View>
+            <Text style={styles.headerNet}>
+              {line.net} · LINHA {line.num}
+            </Text>
+            <Text style={styles.headerName}>{line.name}</Text>
+          </View>
+        </View>
 
-          <View style={styles.statusBox}>
-            <StatusDot status={line.status} size={10} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.statusLabel}>{line.situacao ?? meta.label}</Text>
-              {line.note && line.note !== line.situacao && (
-                <Text style={styles.statusNote}>{line.note}</Text>
-              )}
-            </View>
+        <View style={styles.statusBox}>
+          <StatusDot status={line.status} size={10} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.statusLabel}>{line.situacao ?? meta.label}</Text>
+            {line.note && line.note !== line.situacao && (
+              <Text style={styles.statusNote}>{line.note}</Text>
+            )}
           </View>
-        </LinearGradient>
+        </View>
+      </LinearGradient>
 
-        {stations.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>ESTAÇÕES</Text>
-            <View style={styles.stationList}>
-              <View style={[styles.stationRail, { backgroundColor: line.color }]} />
-              {stations.map((st, i) => {
-                const transfers = getTransfers(st);
-                return (
-                  <View key={i} style={styles.stationRow}>
-                    <View style={[styles.stationDot, { borderColor: line.color }]} />
-                    <Text style={styles.stationName}>{st}</Text>
-                    {transfers.length > 0 && (
-                      <View style={styles.transferBadges}>
-                        {transfers.map((n) => (
-                          <View
-                            key={n}
-                            style={[
-                              styles.transferBadge,
-                              { backgroundColor: LINE_META[n]?.color ?? '#888' },
-                            ]}>
-                            <Text style={styles.transferBadgeText}>{n}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        )}
+      <View style={styles.tabBar}>
+        <Pressable
+          style={[styles.tabBtn, activeTab === 'stations' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('stations')}>
+          <Text style={[styles.tabLabel, activeTab === 'stations' && styles.tabLabelActive]}>
+            ESTAÇÕES
+          </Text>
+          {activeTab === 'stations' && (
+            <View style={[styles.tabIndicator, { backgroundColor: line.color }]} />
+          )}
+        </Pressable>
+        <Pressable
+          style={[styles.tabBtn, activeTab === 'reports' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('reports')}>
+          <Text style={[styles.tabLabel, activeTab === 'reports' && styles.tabLabelActive]}>
+            RELATOS
+          </Text>
+          {activeTab === 'reports' && (
+            <View style={[styles.tabIndicator, { backgroundColor: line.color }]} />
+          )}
+        </Pressable>
+      </View>
 
-        {histLoading ? (
-          <View style={{ padding: 18, alignItems: 'center' }}>
-            <ActivityIndicator size="small" color={theme.accent} />
-          </View>
-        ) : lineHist.length > 0 ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>OCORRÊNCIAS HOJE</Text>
-            <View style={styles.histList}>
-              {lineHist.map((o) => {
-                const hMeta = STATUS_META[o.status];
-                return (
-                  <View key={o.id} style={styles.histCard}>
-                    <View style={styles.histMeta}>
-                      <StatusDot status={o.status} size={8} />
-                      <Text style={styles.histTime}>{o.at}</Text>
-                      {o.status !== 'normal' && (
-                        <Text style={[styles.ongoingTag, { color: hMeta.color }]}>· EM CURSO</Text>
+      {activeTab === 'stations' ? (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}>
+          {stations.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>ESTAÇÕES</Text>
+              <View style={styles.stationList}>
+                <View style={[styles.stationRail, { backgroundColor: line.color }]} />
+                {stations.map((st, i) => {
+                  const transfers = getTransfers(st);
+                  return (
+                    <View key={i} style={styles.stationRow}>
+                      <View style={[styles.stationDot, { borderColor: line.color }]} />
+                      <Text style={styles.stationName}>{st}</Text>
+                      {transfers.length > 0 && (
+                        <View style={styles.transferBadges}>
+                          {transfers.map((n) => (
+                            <View
+                              key={n}
+                              style={[
+                                styles.transferBadge,
+                                { backgroundColor: LINE_META[n]?.color ?? '#888' },
+                              ]}>
+                              <Text style={styles.transferBadgeText}>{n}</Text>
+                            </View>
+                          ))}
+                        </View>
                       )}
                     </View>
-                    <Text style={styles.histTitle}>{o.situacao}</Text>
-                    {o.descricao ? <Text style={styles.histBody}>{o.descricao}</Text> : null}
-                  </View>
-                );
-              })}
+                  );
+                })}
+              </View>
             </View>
-          </View>
-        ) : (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>OCORRÊNCIAS HOJE</Text>
-            <Text style={styles.noHistText}>Sem ocorrências registradas hoje nesta linha.</Text>
-          </View>
-        )}
-      </ScrollView>
+          )}
+
+          {histLoading ? (
+            <View style={{ padding: 18, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={theme.accent} />
+            </View>
+          ) : lineHist.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>OCORRÊNCIAS HOJE</Text>
+              <View style={styles.histList}>
+                {lineHist.map((o) => {
+                  const hMeta = STATUS_META[o.status];
+                  return (
+                    <View key={o.id} style={styles.histCard}>
+                      <View style={styles.histMeta}>
+                        <StatusDot status={o.status} size={8} />
+                        <Text style={styles.histTime}>{o.at}</Text>
+                        {o.status !== 'normal' && (
+                          <Text style={[styles.ongoingTag, { color: hMeta.color }]}>
+                            · EM CURSO
+                          </Text>
+                        )}
+                      </View>
+                      <Text style={styles.histTitle}>{o.situacao}</Text>
+                      {o.descricao ? <Text style={styles.histBody}>{o.descricao}</Text> : null}
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          ) : (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>OCORRÊNCIAS HOJE</Text>
+              <Text style={styles.noHistText}>Sem ocorrências registradas hoje nesta linha.</Text>
+            </View>
+          )}
+        </ScrollView>
+      ) : (
+        <UserReports lineNum={lineCode} stations={stations} />
+      )}
     </SafeAreaView>
   );
 }
@@ -182,6 +238,41 @@ const styles = StyleSheet.create({
   errorText: { color: theme.textDim, fontSize: 14 },
 
   header: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 22 },
+
+  tabBar: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    backgroundColor: theme.bg,
+  },
+  tabBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    position: 'relative',
+  },
+  tabBtnActive: {},
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    color: theme.textDim,
+  },
+  tabLabelActive: { color: theme.text },
+  tabIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: '20%',
+    right: '20%',
+    height: 2,
+    borderRadius: 1,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
   backCircle: {
     width: 36,
     height: 36,
@@ -189,7 +280,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 14,
   },
   lineIdentity: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
   bigBadge: {

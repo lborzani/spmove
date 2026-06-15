@@ -1,79 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  StyleSheet,
-  Switch,
-  Alert,
-  ActivityIndicator,
-  Platform,
-} from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Switch, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import * as IntentLauncher from 'expo-intent-launcher';
 import * as Notifications from 'expo-notifications';
-import { useQuery } from '@tanstack/react-query';
+import Constants from 'expo-constants';
 import { theme } from '@/constants/theme';
-import { fetchStatus, LINE_META } from '@/services/api';
-import type { Line } from '@/constants/data';
-import { LineBadge } from '@/components/LineBadge';
 import { IcoArrowLeft } from '@/components/Icons';
-import {
-  getGlobalEnabled,
-  setGlobalEnabled,
-  setLineEnabled,
-  getAllLinePrefs,
-} from '@/constants/notifPrefs';
+import { getGlobalEnabled, setGlobalEnabled } from '@/constants/notifPrefs';
 import { requestNotificationPermissions } from '@/services/notifications';
-import { registerBackgroundTask } from '@/services/backgroundTask';
-
-function LineGroup({
-  title,
-  lines,
-  prefs,
-  onToggle,
-}: {
-  title: string;
-  lines: Line[];
-  prefs: Record<string, boolean>;
-  onToggle: (num: string, val: boolean) => void;
-}) {
-  if (lines.length === 0) return null;
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {lines.map((l) => (
-        <View key={l.num} style={styles.row}>
-          <LineBadge line={l} size={36} />
-          <View style={styles.rowInfo}>
-            <Text style={styles.rowLabel}>{l.name}</Text>
-            <Text style={styles.rowSub}>
-              {l.net} · Linha {l.num}
-            </Text>
-          </View>
-          <Switch
-            value={prefs[l.num] ?? true}
-            onValueChange={(val) => onToggle(l.num, val)}
-            trackColor={{ false: theme.surface, true: `${theme.accent}55` }}
-            thumbColor={(prefs[l.num] ?? true) ? theme.accent : theme.textFaint}
-          />
-        </View>
-      ))}
-    </View>
-  );
-}
+import { registerWithBackend, unregisterFromBackend } from '@/services/pushRegistration';
+import { getFavorites } from '@/constants/favPrefs';
 
 export default function SettingsScreen() {
-  const { data: lines, isLoading } = useQuery({
-    queryKey: ['status'],
-    queryFn: fetchStatus,
-    staleTime: 5 * 60 * 1000,
-  });
-
   const [globalEnabled, setGlobal] = useState(false);
-  const [linePrefs, setLinePrefs] = useState<Record<string, boolean>>({});
   const [permGranted, setPermGranted] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -83,10 +22,8 @@ export default function SettingsScreen() {
         getGlobalEnabled(),
         Notifications.getPermissionsAsync(),
       ]);
-      const prefs = await getAllLinePrefs(Object.keys(LINE_META));
       setGlobal(global);
       setPermGranted(status === 'granted');
-      setLinePrefs(prefs);
       setLoaded(true);
     })();
   }, []);
@@ -103,36 +40,20 @@ export default function SettingsScreen() {
           return;
         }
         setPermGranted(true);
-        await registerBackgroundTask();
       }
       setGlobal(val);
       await setGlobalEnabled(val);
+      if (val) {
+        const favorites = await getFavorites();
+        registerWithBackend(favorites).catch(() => null);
+      } else {
+        unregisterFromBackend().catch(() => null);
+      }
     },
     [permGranted],
   );
 
-  const handleLineToggle = useCallback(async (num: string, val: boolean) => {
-    setLinePrefs((prev) => ({ ...prev, [num]: val }));
-    await setLineEnabled(num, val);
-  }, []);
-
-  const requestBatteryExemption = useCallback(async () => {
-    if (Platform.OS !== 'android') return;
-    try {
-      await IntentLauncher.startActivityAsync(
-        IntentLauncher.ActivityAction.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-        { data: 'package:com.lborzani.spmove' },
-      );
-    } catch {
-      Alert.alert(
-        'Não disponível',
-        'Acesse Configurações > Apps > SPMove > Bateria e selecione "Sem restrições".',
-      );
-    }
-  }, []);
-
-  const metro = (lines ?? []).filter((l) => l.net === 'Metrô');
-  const cptm = (lines ?? []).filter((l) => l.net === 'CPTM');
+  const version = Constants.expoConfig?.version ?? '1.0.0';
 
   return (
     <SafeAreaView style={styles.root}>
@@ -149,7 +70,7 @@ export default function SettingsScreen() {
           <View style={styles.row}>
             <View style={styles.rowInfo}>
               <Text style={styles.rowLabel}>Ativar notificações</Text>
-              <Text style={styles.rowSub}>Mudanças de status e ocorrências</Text>
+              <Text style={styles.rowSub}>Alertas de mudança de status nas linhas favoritas</Text>
             </View>
             <Switch
               value={loaded && globalEnabled}
@@ -163,43 +84,23 @@ export default function SettingsScreen() {
               Permissão do sistema não concedida. Acesse as configurações do aparelho.
             </Text>
           )}
-          {Platform.OS === 'android' && (
-            <Pressable style={[styles.row, { marginTop: 6 }]} onPress={requestBatteryExemption}>
-              <View style={styles.rowInfo}>
-                <Text style={styles.rowLabel}>Otimização de bateria</Text>
-                <Text style={styles.rowSub}>
-                  Desative para receber notificações em segundo plano
-                </Text>
-              </View>
-              <Text style={[styles.rowSub, { color: theme.accent, fontWeight: '600' }]}>
-                Configurar
-              </Text>
-            </Pressable>
-          )}
         </View>
 
-        {globalEnabled &&
-          loaded &&
-          (isLoading ? (
-            <View style={styles.loadingLines}>
-              <ActivityIndicator size="small" color={theme.accent} />
-            </View>
-          ) : (
-            <>
-              <LineGroup
-                title="METRÔ"
-                lines={metro}
-                prefs={linePrefs}
-                onToggle={handleLineToggle}
-              />
-              <LineGroup title="CPTM" lines={cptm} prefs={linePrefs} onToggle={handleLineToggle} />
-            </>
-          ))}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>SOBRE</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Versão</Text>
+            <Text style={styles.infoValue}>{version}</Text>
+          </View>
+          <View style={[styles.infoRow, { marginBottom: 0 }]}>
+            <Text style={styles.infoLabel}>Dados</Text>
+            <Text style={styles.infoValue}>ARTESP / SPTrans</Text>
+          </View>
+        </View>
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>
-            As notificações dependem de busca em segundo plano. O intervalo mínimo é definido pelo
-            sistema operacional (geralmente 15 min no iOS).
+            Notificações push são enviadas para linhas favoritas, mesmo com o app fechado.
           </Text>
         </View>
       </ScrollView>
@@ -252,7 +153,6 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
     borderRadius: theme.radiusCard,
     padding: 12,
-    marginBottom: 6,
   },
   rowInfo: { flex: 1, minWidth: 0 },
   rowLabel: { color: theme.text, fontSize: 14, fontWeight: '600' },
@@ -266,7 +166,20 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  loadingLines: { padding: 24, alignItems: 'center' },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: theme.radiusCard,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 6,
+  },
+  infoLabel: { color: theme.textDim, fontSize: 13 },
+  infoValue: { color: theme.text, fontSize: 13, fontWeight: '500' },
 
   footer: { paddingHorizontal: 22, paddingTop: 28 },
   footerText: {

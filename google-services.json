@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "812274688533",
+    "project_id": "spmove-f2aa5",
+    "storage_bucket": "spmove-f2aa5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:812274688533:android:0ffb1dfab8471b85b6a41c",
+        "android_client_info": {
+          "package_name": "com.lborzani.spmove"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCfhaRucwXJHOLUovj9-txKMF8qa-1TXEs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

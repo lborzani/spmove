@@ -3,35 +3,60 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { theme, STATUS_META } from '@/constants/theme';
 import { LineBadge } from './LineBadge';
 import { StatusPill } from './StatusPill';
+import { IcoHeart } from './Icons';
 import type { Line } from '@/constants/data';
 
 interface Props {
   line: Line;
   onPress: () => void;
+  isFavorited?: boolean;
+  onFavoriteToggle?: () => void;
+  reportCount?: number;
 }
 
-// Bold vibe: linha list item com barra colorida de status à esquerda.
-export function LineCard({ line, onPress }: Props) {
+export function LineCard({
+  line,
+  onPress,
+  isFavorited = false,
+  onFavoriteToggle,
+  reportCount = 0,
+}: Props) {
   const meta = STATUS_META[line.status];
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.card, { opacity: pressed ? 0.75 : 1 }]}
-    >
-      {/* faixa de status à esquerda */}
+      style={({ pressed }) => [styles.card, { opacity: pressed ? 0.75 : 1 }]}>
       <View style={[styles.statusStrip, { backgroundColor: meta.color }]} />
-
       <LineBadge line={line} size={40} />
-
       <View style={styles.info}>
         <View style={styles.nameRow}>
           <Text style={styles.name}>{line.name}</Text>
           <Text style={styles.netLabel}>{line.net}</Text>
         </View>
-        <Text style={styles.note} numberOfLines={1}>{line.note}</Text>
+        <View style={styles.noteRow}>
+          <Text style={styles.note} numberOfLines={1}>
+            {line.note}
+          </Text>
+          {reportCount > 0 && (
+            <View style={styles.reportBadge}>
+              <Text style={styles.reportBadgeText}>
+                {reportCount} relato{reportCount > 1 ? 's' : ''}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
-
       <StatusPill status={line.status} />
+      {onFavoriteToggle && (
+        <Pressable onPress={onFavoriteToggle} hitSlop={8} style={styles.heartBtn}>
+          <IcoHeart
+            size={18}
+            color={isFavorited ? '#ef4444' : theme.textFaint}
+            filled={isFavorited}
+            strokeWidth={2}
+          />
+        </Pressable>
+      )}
     </Pressable>
   );
 }
@@ -78,9 +103,18 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
-  note: {
-    color: theme.textDim,
-    fontSize: 12,
-    marginTop: 1,
+  noteRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
+  note: { color: theme.textDim, fontSize: 12, flexShrink: 1 },
+  reportBadge: {
+    backgroundColor: '#f59e0b22',
+    borderWidth: 1,
+    borderColor: '#f59e0b55',
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  reportBadgeText: { color: '#f59e0b', fontSize: 9, fontWeight: '700' },
+  heartBtn: {
+    padding: 4,
   },
 });

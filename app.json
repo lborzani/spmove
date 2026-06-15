@@ -19,7 +19,8 @@
         "backgroundColor": "#151515"
       },
       "package": "com.lborzani.spmove",
-      "versionCode": 1,
+      "versionCode": 3,
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -32,7 +33,6 @@
       "expo-router",
       "expo-font",
       "expo-notifications",
-      "expo-background-task",
       [
         "expo-location",
         {

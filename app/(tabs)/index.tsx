@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,17 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { theme, STATUS_META } from '@/constants/theme';
 import { FILTERS, type FilterId } from '@/constants/data';
 import { fetchStatus } from '@/services/api';
 import { LineCard } from '@/components/LineCard';
 import { IcoLogo, IcoSettings, IcoRefresh } from '@/components/Icons';
+import { getFavorites, toggleFavorite } from '@/constants/favPrefs';
+import { getGlobalEnabled } from '@/constants/notifPrefs';
+import { registerWithBackend } from '@/services/pushRegistration';
+import { fetchReportsSummary } from '@/services/reports';
 
 function MiniStat({ n, label, color }: { n: number; label: string; color: string }) {
   return (
@@ -39,6 +43,33 @@ function LoadingSkeleton() {
 export default function HomeScreen() {
   const [filter, setFilter] = useState<FilterId>('all');
   const [now, setNow] = useState('');
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [reportSummary, setReportSummary] = useState<Record<string, number>>({});
+  const isFirstMount = useRef(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      getFavorites().then((favs) => {
+        setFavorites(new Set(favs));
+        if (isFirstMount.current && favs.length > 0) {
+          setFilter('favorites');
+        }
+        isFirstMount.current = false;
+      });
+      fetchReportsSummary()
+        .then(setReportSummary)
+        .catch(() => null);
+    }, []),
+  );
+
+  const handleFavoriteToggle = useCallback(async (num: string) => {
+    const newFavs = await toggleFavorite(num);
+    setFavorites(new Set(newFavs));
+    const enabled = await getGlobalEnabled();
+    if (enabled) {
+      registerWithBackend(newFavs).catch(() => null);
+    }
+  }, []);
 
   useEffect(() => {
     function tick() {
@@ -65,12 +96,13 @@ export default function HomeScreen() {
   const filtered = useMemo(() => {
     if (!lines) return [];
     return lines.filter((l) => {
+      if (filter === 'favorites') return favorites.has(l.num);
       if (filter === 'metro') return l.net === 'Metrô';
       if (filter === 'cptm') return l.net === 'CPTM';
       if (filter === 'issues') return l.status !== 'normal';
       return true;
     });
-  }, [lines, filter]);
+  }, [lines, filter, favorites]);
 
   const counts = useMemo(() => {
     const c = { normal: 0, atencao: 0, lento: 0, parado: 0 };
@@ -213,10 +245,21 @@ export default function HomeScreen() {
         ) : (
           <View style={styles.list}>
             {filtered.map((l) => (
-              <LineCard key={l.id} line={l} onPress={() => router.push(`/line/${l.num}`)} />
+              <LineCard
+                key={l.id}
+                line={l}
+                onPress={() => router.push(`/line/${l.num}`)}
+                isFavorited={favorites.has(l.num)}
+                onFavoriteToggle={() => handleFavoriteToggle(l.num)}
+                reportCount={reportSummary[l.num] ?? 0}
+              />
             ))}
             {filtered.length === 0 && (
-              <Text style={styles.emptyText}>Nenhuma linha neste filtro.</Text>
+              <Text style={styles.emptyText}>
+                {filter === 'favorites'
+                  ? 'Nenhuma linha favoritada. Toque no coração para favoritar.'
+                  : 'Nenhuma linha neste filtro.'}
+              </Text>
             )}
           </View>
         )}

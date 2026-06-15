@@ -4,8 +4,11 @@ import {
   setupAndroidChannel,
   requestNotificationPermissions,
 } from '@/services/notifications';
-import { registerBackgroundTask } from '@/services/backgroundTask';
+import { getGlobalEnabled } from '@/constants/notifPrefs';
+import { registerWithBackend } from '@/services/pushRegistration';
+import { getFavorites } from '@/constants/favPrefs';
 import { View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -19,6 +22,7 @@ import {
   SpaceGrotesk_700Bold,
 } from '@expo-google-fonts/space-grotesk';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { theme } from '@/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -48,8 +52,14 @@ function AppNavigator() {
   useEffect(() => {
     setupNotificationHandler();
     setupAndroidChannel();
-    registerBackgroundTask();
-    requestNotificationPermissions();
+    (async () => {
+      const granted = await requestNotificationPermissions();
+      if (!granted) return;
+      const enabled = await getGlobalEnabled();
+      if (!enabled) return;
+      const favorites = await getFavorites();
+      registerWithBackend(favorites).catch(() => null);
+    })();
   }, []);
 
   useEffect(() => {
@@ -95,10 +105,14 @@ function AppNavigator() {
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <AppNavigator />
-      </QueryClientProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
+          <BottomSheetModalProvider>
+            <AppNavigator />
+          </BottomSheetModalProvider>
+        </QueryClientProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

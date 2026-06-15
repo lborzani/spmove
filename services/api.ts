@@ -7,35 +7,35 @@ const BASE = 'https://ccm.artesp.sp.gov.br/metroferroviario/api';
 // ── Metadados estáticos que a API não fornece ────────────────────────────────
 // (cores oficiais + rede — nunca mudam)
 
-export const LINE_META: Record<string, {
-  color: string;
-  net: 'Metrô' | 'CPTM';
-  shortName: string;
-}> = {
-  '1':  { color: '#0157a8', net: 'Metrô', shortName: 'Azul'      },
-  '2':  { color: '#00824c', net: 'Metrô', shortName: 'Verde'     },
-  '3':  { color: '#ee372f', net: 'Metrô', shortName: 'Vermelha'  },
-  '4':  { color: '#fbb918', net: 'Metrô', shortName: 'Amarela'   },
-  '5':  { color: '#8a428a', net: 'Metrô', shortName: 'Lilás'     },
-  '7':  { color: '#c00f31', net: 'CPTM',  shortName: 'Rubi'      },
-  '8':  { color: '#888a8c', net: 'CPTM',  shortName: 'Diamante'  },
-  '9':  { color: '#008b6c', net: 'CPTM',  shortName: 'Esmeralda' },
-  '10': { color: '#08acac', net: 'CPTM',  shortName: 'Turquesa'  },
-  '11': { color: '#ee5a3a', net: 'CPTM',  shortName: 'Coral'     },
-  '12': { color: '#142e8e', net: 'CPTM',  shortName: 'Safira'    },
-  '13': { color: '#098345', net: 'CPTM',  shortName: 'Jade'      },
-  '15': { color: '#9b9b9b', net: 'Metrô', shortName: 'Prata'     },
+export const LINE_META: Record<
+  string,
+  {
+    color: string;
+    net: 'Metrô' | 'CPTM';
+    shortName: string;
+  }
+> = {
+  '1': { color: '#0157a8', net: 'Metrô', shortName: 'Azul' },
+  '2': { color: '#00824c', net: 'Metrô', shortName: 'Verde' },
+  '3': { color: '#ee372f', net: 'Metrô', shortName: 'Vermelha' },
+  '4': { color: '#fbb918', net: 'Metrô', shortName: 'Amarela' },
+  '5': { color: '#8a428a', net: 'Metrô', shortName: 'Lilás' },
+  '7': { color: '#c00f31', net: 'CPTM', shortName: 'Rubi' },
+  '8': { color: '#888a8c', net: 'CPTM', shortName: 'Diamante' },
+  '9': { color: '#008b6c', net: 'CPTM', shortName: 'Esmeralda' },
+  '10': { color: '#08acac', net: 'CPTM', shortName: 'Turquesa' },
+  '11': { color: '#ee5a3a', net: 'CPTM', shortName: 'Coral' },
+  '12': { color: '#142e8e', net: 'CPTM', shortName: 'Safira' },
+  '13': { color: '#098345', net: 'CPTM', shortName: 'Jade' },
+  '15': { color: '#9b9b9b', net: 'Metrô', shortName: 'Prata' },
 };
 
 // ── Mapeamento situacao → StatusType ────────────────────────────────────────
 // classificacaoTipo vem como string no /status/, como objeto.tipo no /ocorrencias/
 
-export function mapSituacao(
-  situacao: string,
-  classificacaoTipo: string,
-): StatusType {
+export function mapSituacao(situacao: string, classificacaoTipo: string): StatusType {
   if (classificacaoTipo === 'problema') return 'parado';
-  if (classificacaoTipo === 'ignorar')  return 'normal'; // fora do horário
+  if (classificacaoTipo === 'ignorar') return 'normal'; // fora do horário
 
   switch (situacao) {
     case 'Operação Normal':
@@ -83,22 +83,19 @@ export async function fetchStatus(): Promise<Line[]> {
       const meta = LINE_META[apiLine.codigo];
       if (!meta) continue; // linha desconhecida, pular
 
-      const statusType = mapSituacao(
-        apiLine.status.situacao,
-        apiLine.status.classificacao,
-      );
+      const statusType = mapSituacao(apiLine.status.situacao, apiLine.status.classificacao);
 
       lines.push({
-        id:         parseInt(apiLine.codigo, 10),
-        net:        meta.net,
-        num:        apiLine.codigo,
-        name:       meta.shortName,
-        color:      meta.color,
-        status:     statusType,
-        note:       apiLine.status.descricao || apiLine.status.situacao,
-        situacao:   apiLine.status.situacao,
+        id: parseInt(apiLine.codigo, 10),
+        net: meta.net,
+        num: apiLine.codigo,
+        name: meta.shortName,
+        color: meta.color,
+        status: statusType,
+        note: apiLine.status.descricao || apiLine.status.situacao,
+        situacao: apiLine.status.situacao,
         atualizadoHa: apiLine.status.atualizado_ha,
-        estacoes:   apiLine.estacoes?.nomes ?? undefined,
+        estacoes: apiLine.estacoes?.nomes?.length ? apiLine.estacoes.nomes : undefined,
       });
     }
   }
@@ -133,24 +130,25 @@ export async function fetchOcorrencias(
 
       // derivar severity para notificações
       const severity: 'critico' | 'aviso' | 'info' =
-        o.classificacao.tipo === 'problema' ? 'critico' :
-        ['Velocidade Reduzida', 'Maiores Intervalos', 'Operação Parcial'].includes(o.situacao)
-          ? 'aviso'
-          : 'info';
+        o.classificacao.tipo === 'problema'
+          ? 'critico'
+          : ['Velocidade Reduzida', 'Maiores Intervalos', 'Operação Parcial'].includes(o.situacao)
+            ? 'aviso'
+            : 'info';
 
       return {
-        id:         o.id,
-        lineCode:   o.linha.codigo,
-        lineName:   meta?.shortName ?? o.linha.nome,
-        lineColor:  meta?.color ?? '#888',
-        net:        meta?.net ?? 'CPTM',
-        empresa:    o.empresa.nome,
-        situacao:   o.situacao,
-        descricao:  o.descricao,
-        status:     statusType,
+        id: o.id,
+        lineCode: o.linha.codigo,
+        lineName: meta?.shortName ?? o.linha.nome,
+        lineColor: meta?.color ?? '#888',
+        net: meta?.net ?? 'CPTM',
+        empresa: o.empresa.nome,
+        situacao: o.situacao,
+        descricao: o.descricao,
+        status: statusType,
         severity,
         at,
-        dataHora:   o.data_hora,
+        dataHora: o.data_hora,
       } satisfies RichOcorrencia;
     });
 }

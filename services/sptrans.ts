@@ -36,7 +36,8 @@ async function get<T>(path: string, params?: Record<string, string | number>): P
   if (!sessionCookie) await authenticate();
 
   const qs = params
-    ? '?' + Object.entries(params)
+    ? '?' +
+      Object.entries(params)
         .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
         .join('&')
     : '';
@@ -60,12 +61,22 @@ async function get<T>(path: string, params?: Record<string, string | number>): P
 
 // ── Linhas ──────────────────────────────────────────────────────────────────
 
+interface SPLineRaw {
+  cl: number;
+  lc: boolean;
+  lt: string;
+  sl: 1 | 2;
+  tl: number;
+  tp: string;
+  ts: string;
+}
+
 export async function buscarLinhas(termos: string): Promise<SPLine[]> {
-  const raw = await get<any[]>('/Linha/Buscar', { termosBusca: termos });
+  const raw = await get<SPLineRaw[]>('/Linha/Buscar', { termosBusca: termos });
   return (raw ?? []).map((l) => ({
     ...l,
-    lt0: l.tp, // terminal principal = origem
-    lt1: l.ts, // terminal secundário = destino
+    lt0: l.tp,
+    lt1: l.ts,
   }));
 }
 
@@ -84,6 +95,21 @@ async function buscarTodasParadas(): Promise<SPStop[] | null> {
   }
 }
 
+interface OverpassElement {
+  id: number;
+  lat: number;
+  lon: number;
+  tags?: Record<string, string>;
+}
+
+interface GeoServerFeature {
+  properties: Record<string, unknown> | null;
+  geometry: {
+    type: string;
+    coordinates: number[][] | number[][][];
+  } | null;
+}
+
 // ── OSM Overpass ─────────────────────────────────────────────────────────────
 
 export async function buscarParadasOSM(
@@ -96,14 +122,16 @@ export async function buscarParadasOSM(
     `(node["highway"="bus_stop"](around:${radiusM},${lat},${lon});` +
     `node["public_transport"="platform"]["bus"="yes"](around:${radiusM},${lat},${lon}););` +
     `out body;`;
-  const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-  const data = await res.json();
-  const elements: any[] = data.elements ?? [];
+  const res = await fetch(
+    `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`,
+  );
+  const data = (await res.json()) as { elements?: OverpassElement[] };
+  const elements: OverpassElement[] = data.elements ?? [];
 
   const seen = new Set<number>();
   return elements
-    .filter(el => el.lat != null && el.lon != null && !seen.has(el.id) && seen.add(el.id))
-    .map(el => ({
+    .filter((el) => el.lat != null && el.lon != null && !seen.has(el.id) && seen.add(el.id))
+    .map((el) => ({
       osmId: el.id,
       lat: el.lat,
       lon: el.lon,
@@ -120,22 +148,26 @@ export async function resolverCodigoParada(osmStop: OSMStop): Promise<number | n
     const allStops = await buscarTodasParadas();
     if (allStops && allStops.length > 0) {
       const nearest = allStops
-        .map(s => ({ cp: s.cp, dist: haversineMeters(osmStop.lat, osmStop.lon, s.py, s.px) }))
+        .map((s) => ({ cp: s.cp, dist: haversineMeters(osmStop.lat, osmStop.lon, s.py, s.px) }))
         .sort((a, b) => a.dist - b.dist)[0];
       if (nearest && nearest.dist <= 80) return nearest.cp;
     }
-  } catch { /* try next */ }
+  } catch {
+    /* try next */
+  }
 
   if (osmStop.name) {
     try {
       const results = await buscarParadas(osmStop.name);
       if (results.length > 0) {
         const best = results
-          .map(s => ({ cp: s.cp, dist: haversineMeters(osmStop.lat, osmStop.lon, s.py, s.px) }))
+          .map((s) => ({ cp: s.cp, dist: haversineMeters(osmStop.lat, osmStop.lon, s.py, s.px) }))
           .sort((a, b) => a.dist - b.dist)[0];
         if (best && best.dist <= 200) return best.cp;
       }
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
 
   return null;
@@ -155,17 +187,17 @@ export async function buscarRotaLinha(
     '?service=WFS&version=2.0&request=GetFeature' +
     '&typeName=SIM%3ALinhasAtuaisEFuturas' +
     '&outputFormat=application%2Fjson' +
-    '&CQL_FILTER=' + encodeURIComponent(filter);
+    '&CQL_FILTER=' +
+    encodeURIComponent(filter);
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`GeoServer ${res.status}`);
-  const data = await res.json();
+  const data = (await res.json()) as { features?: GeoServerFeature[] };
 
-  const features: any[] = data.features ?? [];
+  const features: GeoServerFeature[] = data.features ?? [];
   if (!features.length) return null;
 
-  const feature =
-    features.find((f: any) => f.properties?.LINHA === lineCode) ?? features[0];
+  const feature = features.find((f) => f.properties?.['LINHA'] === lineCode) ?? features[0];
 
   const geom = feature?.geometry;
   if (!geom) return null;
@@ -194,28 +226,113 @@ export async function buscarLinhasProximas(
   lon: number,
   radiusM = 500,
 ): Promise<SPNearbyLine[]> {
-  const posicao = await get<SPPositionResponse>('/Posicao');
-  const lines = posicao.l ?? [];
+  // Use WFS native bbox param — avoids needing the geometry field name for CQL
+  const deltaLat = radiusM / 111111;
+  const deltaLon = radiusM / (111111 * Math.cos((lat * Math.PI) / 180));
+  const bbox = `${lon - deltaLon},${lat - deltaLat},${lon + deltaLon},${lat + deltaLat},EPSG:4326`;
 
-  const nearby: SPNearbyLine[] = [];
-  for (const line of lines) {
-    const busesNear = (line.vs ?? []).filter(
-      v => v.py != null && v.px != null && haversineMeters(lat, lon, v.py, v.px) <= radiusM
-    );
-    if (busesNear.length === 0) continue;
-    nearby.push({
-      cl: line.cl,
-      c: line.c,
-      sl: (line.sl === 2 ? 2 : 1) as 1 | 2,
-      lt0: line.lt0,
-      lt1: line.lt1,
-      qv: busesNear.length,
-      nearestBusM: Math.min(...busesNear.map(v => haversineMeters(lat, lon, v.py, v.px))),
-      vs: line.vs ?? [],
-    });
+  const url =
+    GEOSERVER +
+    '?service=WFS&version=2.0&request=GetFeature' +
+    '&typeName=SIM%3ALinhasAtuaisEFuturas' +
+    '&outputFormat=application%2Fjson' +
+    '&bbox=' +
+    encodeURIComponent(bbox);
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GeoServer bbox ${res.status}`);
+  const data = (await res.json()) as { features?: GeoServerFeature[] };
+  const features: GeoServerFeature[] = data.features ?? [];
+  if (!features.length) return [];
+
+  // Collect (LINHA, SENTIDO) → nearest route point distance (sampled to avoid iterating huge geometries)
+  const lineMap = new Map<string, { lineCode: string; sentido: 1 | 2; nearestM: number }>();
+
+  for (const feature of features) {
+    const props = feature.properties ?? {};
+    const lineCode: string = String(props.LINHA ?? '').trim();
+    const sentido = (Number(props.SENTIDO) === 2 ? 2 : 1) as 1 | 2;
+    if (!lineCode) continue;
+
+    const key = `${lineCode}|${sentido}`;
+    let minDist = lineMap.get(key)?.nearestM ?? Infinity;
+
+    const samplePairs = (pairs: number[][]) => {
+      const step = Math.max(1, Math.floor(pairs.length / 30));
+      for (let i = 0; i < pairs.length; i += step) {
+        const d = haversineMeters(lat, lon, pairs[i][1], pairs[i][0]);
+        if (d < minDist) minDist = d;
+      }
+    };
+
+    const geom = feature.geometry;
+    if (geom?.type === 'MultiLineString') {
+      for (const seg of geom.coordinates as number[][][]) samplePairs(seg);
+    } else if (geom?.type === 'LineString') {
+      samplePairs(geom.coordinates as number[][]);
+    }
+
+    lineMap.set(key, { lineCode, sentido, nearestM: minDist });
   }
 
-  return nearby.sort((a, b) => a.nearestBusM - b.nearestBusM);
+  if (!lineMap.size) return [];
+
+  // GeoServer LINHA = "REBO-10" → split into lineNum "REBO" + variant 10
+  const parseGeoCode = (code: string) => {
+    const idx = code.lastIndexOf('-');
+    if (idx < 0) return { lineNum: code, variant: 0 };
+    const v = parseInt(code.slice(idx + 1), 10);
+    return { lineNum: code.slice(0, idx), variant: isNaN(v) ? 0 : v };
+  };
+
+  // Take closest 30 (line, direction) pairs to cap API calls
+  const topEntries = [...lineMap.values()].sort((a, b) => a.nearestM - b.nearestM).slice(0, 30);
+
+  // Fetch terminal names + cl by lineNum (not full code) — API does substring match
+  const uniqueLineNums = [...new Set(topEntries.map((e) => parseGeoCode(e.lineCode).lineNum))];
+  const linesByNum = new Map<string, SPLine[]>();
+  await Promise.all(
+    uniqueLineNums.map(async (lineNum) => {
+      try {
+        const lines = await buscarLinhas(lineNum);
+        linesByNum.set(lineNum, lines);
+      } catch {
+        /* skip */
+      }
+    }),
+  );
+
+  // Build result: for each unique line code, include ALL directions from the API
+  const seenCl = new Set<number>();
+  const seenCode = new Set<string>();
+  const result: SPNearbyLine[] = [];
+
+  for (const { lineCode, nearestM } of topEntries) {
+    if (seenCode.has(lineCode)) continue;
+    seenCode.add(lineCode);
+
+    const { lineNum, variant } = parseGeoCode(lineCode);
+    const allLines = linesByNum.get(lineNum) ?? [];
+    const matchingVariant = allLines.filter((l) => l.tl === variant);
+    const candidates = matchingVariant.length > 0 ? matchingVariant : allLines.slice(0, 2);
+
+    for (const line of candidates) {
+      if (seenCl.has(line.cl)) continue;
+      seenCl.add(line.cl);
+      result.push({
+        cl: line.cl,
+        c: `${line.lt}-${line.tl}`,
+        sl: (line.sl === 2 ? 2 : 1) as 1 | 2,
+        lt0: line.tp,
+        lt1: line.ts,
+        qv: 0,
+        nearestBusM: nearestM,
+        vs: [],
+      });
+    }
+  }
+
+  return result.sort((a, b) => a.nearestBusM - b.nearestBusM);
 }
 
 // ── Previsão ─────────────────────────────────────────────────────────────────
@@ -226,17 +343,12 @@ export async function getPrevisaoParada(codigoParada: number): Promise<SPArrival
 
 // ── Utilitários ──────────────────────────────────────────────────────────────
 
-export function haversineMeters(
-  lat1: number, lon1: number,
-  lat2: number, lon2: number,
-): number {
+export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }

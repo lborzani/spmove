@@ -6,13 +6,11 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  ScrollView,
   FlatList,
   Alert,
-  Animated,
-  PanResponder,
   Keyboard,
 } from 'react-native';
+import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { theme } from '@/constants/theme';
@@ -38,8 +36,8 @@ import { BusMap } from '@/components/BusMap';
 import { getGtfsShape } from '@/services/gtfs';
 import { IcoLocate, IcoBusSearch } from '@/components/Icons';
 
-const SHEET_COLLAPSED = 160;
-const SHEET_EXPANDED = 440;
+const SNAP_COLLAPSED = 160;
+const SNAP_EXPANDED = 440;
 
 type SheetMode = 'hidden' | 'nearby-lines' | 'line' | 'osm-stop';
 
@@ -77,77 +75,21 @@ export default function OnibusScreen() {
     null,
   );
   const [sheetMode, setSheetMode] = useState<SheetMode>('hidden');
-  const [, setSheetExpanded] = useState(false);
-  const sheetHeight = useMemo(() => new Animated.Value(0), []);
-  const expandedRef = useRef(false);
-
-  const sheetPan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dy) > 4,
-      onPanResponderGrant: () => {
-        sheetHeight.stopAnimation();
-      },
-      onPanResponderMove: (_, gs) => {
-        if (Math.abs(gs.dy) < 4) return;
-        const base = expandedRef.current ? SHEET_EXPANDED : SHEET_COLLAPSED;
-        sheetHeight.setValue(Math.max(SHEET_COLLAPSED, Math.min(SHEET_EXPANDED, base - gs.dy)));
-      },
-      onPanResponderRelease: (_, gs) => {
-        // Tap: pouco movimento → toggle
-        if (Math.abs(gs.dy) < 8 && Math.abs(gs.dx) < 8) {
-          const next = !expandedRef.current;
-          expandedRef.current = next;
-          setSheetExpanded(next);
-          Animated.spring(sheetHeight, {
-            toValue: next ? SHEET_EXPANDED : SHEET_COLLAPSED,
-            useNativeDriver: false,
-            bounciness: 4,
-          }).start();
-          return;
-        }
-        // Drag: snapa por posição ou velocidade
-        const base = expandedRef.current ? SHEET_EXPANDED : SHEET_COLLAPSED;
-        const projected = base - gs.dy;
-        const mid = (SHEET_COLLAPSED + SHEET_EXPANDED) / 2;
-        const goExpand = projected > mid || gs.vy < -0.5;
-        expandedRef.current = goExpand;
-        setSheetExpanded(goExpand);
-        Animated.spring(sheetHeight, {
-          toValue: goExpand ? SHEET_EXPANDED : SHEET_COLLAPSED,
-          useNativeDriver: false,
-          bounciness: 3,
-        }).start();
-      },
-    }),
-  ).current;
+  const sheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => [SNAP_COLLAPSED, SNAP_EXPANDED], []);
 
   const positionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const locationSub = useRef<Location.LocationSubscription | null>(null);
   const firstFix = useRef(false);
 
-  const openSheet = useCallback(
-    (expanded = true) => {
-      expandedRef.current = expanded;
-      setSheetExpanded(expanded);
-      Animated.spring(sheetHeight, {
-        toValue: expanded ? SHEET_EXPANDED : SHEET_COLLAPSED,
-        useNativeDriver: false,
-        bounciness: 4,
-      }).start();
-    },
-    [sheetHeight],
-  );
+  const openSheet = useCallback((expanded = true) => {
+    sheetRef.current?.snapToIndex(expanded ? 1 : 0);
+  }, []);
 
   const closeSheet = useCallback(() => {
-    expandedRef.current = false;
-    setSheetExpanded(false);
-    Animated.timing(sheetHeight, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: false,
-    }).start(() => setSheetMode('hidden'));
-  }, [sheetHeight]);
+    sheetRef.current?.close();
+    setSheetMode('hidden');
+  }, []);
 
   const startTracking = useCallback(async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -190,10 +132,7 @@ export default function OnibusScreen() {
         setSheetMode('nearby-lines');
         openSheet(false);
       } else {
-        Alert.alert(
-          'Sem linhas',
-          'Nenhum ônibus encontrado a 500 m. Tente novamente em instantes.',
-        );
+        Alert.alert('Sem linhas', 'Nenhuma linha encontrada próxima. Verifique sua localização.');
       }
     } catch {
       Alert.alert('Erro', 'Falha ao buscar linhas próximas.');
@@ -202,89 +141,85 @@ export default function OnibusScreen() {
     }
   }, [userCoords, openSheet]);
 
-  const selectLine = useCallback(
-    async (line: SPNearbyLine | SPLine) => {
-      const displayCode =
-        'c' in line ? (line as SPNearbyLine).c : `${(line as SPLine).lt}-${(line as SPLine).tl}`;
-      Keyboard.dismiss();
-      setSelectedLine(line);
-      setLineResults([]);
-      setSearchQuery('');
-      setSheetMode('line');
-      Animated.timing(sheetHeight, { toValue: 0, duration: 150, useNativeDriver: false }).start();
-      setSheetExpanded(false);
-      const initialSentido: 1 | 2 = 'sl' in line ? (line as SPNearbyLine).sl : 1;
-      setLineLoading(true);
-      setRouteStops([]);
-      setVehicles([]);
-      setRouteShapes({ 1: null, 2: null });
-      setSentido(initialSentido);
-      setDirectionCls({ 1: null, 2: null });
-      if (positionInterval.current) clearInterval(positionInterval.current);
+  const selectLine = useCallback(async (line: SPNearbyLine | SPLine) => {
+    const displayCode =
+      'c' in line ? (line as SPNearbyLine).c : `${(line as SPLine).lt}-${(line as SPLine).tl}`;
+    Keyboard.dismiss();
+    setSelectedLine(line);
+    setLineResults([]);
+    setSearchQuery('');
+    setSheetMode('line');
+    sheetRef.current?.close();
+    const initialSentido: 1 | 2 = 'sl' in line ? (line as SPNearbyLine).sl : 1;
+    setLineLoading(true);
+    setRouteStops([]);
+    setVehicles([]);
+    setRouteShapes({ 1: null, 2: null });
+    setSentido(initialSentido);
+    setDirectionCls({ 1: null, 2: null });
+    if (positionInterval.current) clearInterval(positionInterval.current);
 
-      const cl = line.cl;
+    const cl = line.cl;
 
-      if ('vs' in line && (line as SPNearbyLine).vs.length > 0) {
-        setVehicles((line as SPNearbyLine).vs);
+    if ('vs' in line && (line as SPNearbyLine).vs.length > 0) {
+      setVehicles((line as SPNearbyLine).vs);
+    }
+
+    const localShape1 = getGtfsShape(displayCode + '-1') ?? getGtfsShape(displayCode);
+    const localShape2 = getGtfsShape(displayCode + '-2');
+
+    let [shape1, shape2] = await Promise.all([
+      localShape1
+        ? Promise.resolve(localShape1)
+        : buscarRotaLinha(displayCode, 1).catch(() => null),
+      localShape2
+        ? Promise.resolve(localShape2)
+        : buscarRotaLinha(displayCode, 2).catch(() => null),
+    ]);
+
+    const shapes = { 1: shape1, 2: shape2 } as {
+      1: [number, number][] | null;
+      2: [number, number][] | null;
+    };
+    setRouteShapes(shapes);
+    setSentido(initialSentido);
+    const activeShape = shapes[initialSentido];
+    setRouteAvailable(activeShape ? true : null);
+
+    const cls: { 1: number | null; 2: number | null } = { 1: null, 2: null };
+    try {
+      const dirs = await buscarLinhas(displayCode);
+      for (const d of dirs as SPLine[]) {
+        if (d.sl === 1 || d.sl === 2) cls[d.sl] = d.cl;
       }
+    } catch {
+      /* fallback */
+    }
+    if (!cls[initialSentido]) cls[initialSentido] = cl;
+    setDirectionCls(cls);
 
-      const localShape1 = getGtfsShape(displayCode + '-1') ?? getGtfsShape(displayCode);
-      const localShape2 = getGtfsShape(displayCode + '-2');
+    const activeCl = cls[initialSentido] ?? cl;
 
-      let [shape1, shape2] = await Promise.all([
-        localShape1
-          ? Promise.resolve(localShape1)
-          : buscarRotaLinha(displayCode, 1).catch(() => null),
-        localShape2
-          ? Promise.resolve(localShape2)
-          : buscarRotaLinha(displayCode, 2).catch(() => null),
-      ]);
+    try {
+      const pos = await getPosicaoLinha(activeCl);
+      const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
+      setVehicles(vs.length > 0 ? vs : (pos.vs ?? []));
+    } catch {
+      /* keep existing */
+    }
 
-      const shapes = { 1: shape1, 2: shape2 } as {
-        1: [number, number][] | null;
-        2: [number, number][] | null;
-      };
-      setRouteShapes(shapes);
-      setSentido(initialSentido);
-      const activeShape = shapes[initialSentido];
-      setRouteAvailable(activeShape ? true : null);
+    setLineLoading(false);
 
-      const cls: { 1: number | null; 2: number | null } = { 1: null, 2: null };
-      try {
-        const dirs = await buscarLinhas(displayCode);
-        for (const d of dirs as SPLine[]) {
-          if (d.sl === 1 || d.sl === 2) cls[d.sl] = d.cl;
-        }
-      } catch {
-        /* fallback */
-      }
-      if (!cls[initialSentido]) cls[initialSentido] = cl;
-      setDirectionCls(cls);
-
-      const activeCl = cls[initialSentido] ?? cl;
-
+    positionInterval.current = setInterval(async () => {
       try {
         const pos = await getPosicaoLinha(activeCl);
         const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
         setVehicles(vs.length > 0 ? vs : (pos.vs ?? []));
       } catch {
-        /* keep existing */
+        /* skip */
       }
-
-      setLineLoading(false);
-
-      positionInterval.current = setInterval(async () => {
-        try {
-          const pos = await getPosicaoLinha(activeCl);
-          const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
-          setVehicles(vs.length > 0 ? vs : (pos.vs ?? []));
-        } catch {
-          /* skip */
-        }
-      }, 10_000);
-    },
-    [openSheet],
-  );
+    }, 10_000);
+  }, []);
 
   const switchSentido = useCallback(
     (s: 1 | 2) => {
@@ -535,11 +470,14 @@ export default function OnibusScreen() {
         </View>
       </View>
 
-      <Animated.View
-        style={[styles.sheet, { height: sheetHeight }]}
-        pointerEvents={sheetMode === 'line' ? 'none' : 'auto'}>
-        <View style={styles.sheetHeader} {...sheetPan.panHandlers}>
-          <View style={styles.sheetHandle} />
+      <BottomSheet
+        ref={sheetRef}
+        index={-1}
+        snapPoints={snapPoints}
+        enablePanDownToClose={false}
+        backgroundStyle={styles.sheetBg}
+        handleIndicatorStyle={styles.sheetHandleIndicator}>
+        <View style={styles.sheetHeader}>
           <View style={styles.sheetTitleRow}>
             <Text style={styles.sheetTitle} numberOfLines={1}>
               {sheetMode === 'nearby-lines'
@@ -555,7 +493,7 @@ export default function OnibusScreen() {
         </View>
 
         {sheetMode === 'osm-stop' && selectedOsmStop && (
-          <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+          <BottomSheetScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
             {selectedOsmStop.shelter && <Text style={styles.sheetSub}>🏠 Com abrigo</Text>}
             {userCoords && (
               <Text style={styles.sheetSub}>
@@ -591,11 +529,11 @@ export default function OnibusScreen() {
                 </View>
               ))
             )}
-          </ScrollView>
+          </BottomSheetScrollView>
         )}
 
         {sheetMode === 'nearby-lines' && (
-          <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+          <BottomSheetScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
             {Object.entries(
               nearbyLines.reduce<Record<string, SPNearbyLine[]>>((acc, l) => {
                 (acc[l.c] ??= []).push(l);
@@ -621,18 +559,16 @@ export default function OnibusScreen() {
                         <Text style={styles.dirPickDest} numberOfLines={1}>
                           → {l.sl === 1 ? l.lt0 : l.lt1}
                         </Text>
-                        <Text style={styles.dirPickMeta}>
-                          {l.qv} ôn · {Math.round(l.nearestBusM)} m
-                        </Text>
+                        <Text style={styles.dirPickMeta}>{Math.round(l.nearestBusM)} m</Text>
                       </Pressable>
                     ))}
                   </View>
                 </View>
               );
             })}
-          </ScrollView>
+          </BottomSheetScrollView>
         )}
-      </Animated.View>
+      </BottomSheet>
 
       {sheetMode === 'line' && selectedLine && (
         <View style={styles.linePanel}>
@@ -785,27 +721,19 @@ const styles = StyleSheet.create({
   nearbyBtnText: { color: theme.accent, fontSize: 13, fontWeight: '700' },
   mapBtnDisabled: { opacity: 0.4 },
 
-  sheet: {
+  sheetBg: {
     backgroundColor: theme.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    overflow: 'hidden',
+  },
+  sheetHandleIndicator: {
+    backgroundColor: theme.border,
+    width: 36,
   },
   sheetHeader: {
-    alignItems: 'center',
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
-  },
-  sheetHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: theme.border,
-    marginTop: 10,
-    marginBottom: 8,
   },
   sheetTitleRow: {
     flexDirection: 'row',
