@@ -29,14 +29,14 @@ export async function fetchReports(lineNum: string, deviceId: string): Promise<U
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { reports: UserReport[] };
-  return data.reports;
+  return data.reports ?? [];
 }
 
 export async function fetchReportsSummary(): Promise<Record<string, number>> {
   const res = await fetch(`${BACKEND_URL}/api/reports/summary`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { summary: Record<string, number> };
-  return data.summary;
+  return data.summary ?? {};
 }
 
 export async function createReport(params: {
