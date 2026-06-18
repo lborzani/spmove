@@ -38,6 +38,13 @@
         {
           "locationWhenInUsePermission": "O SPMove usa sua localização para encontrar linhas de ônibus próximas a você."
         }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+        }
       ]
     ],
     "experiments": {
@@ -49,6 +56,9 @@
         "projectId": "c69d3311-8c6c-4848-99ba-324573aa7c41"
       }
     },
-    "owner": "casca0"
+    "owner": "casca0",
+    "ios": {
+      "bundleIdentifier": "com.lborzani.spmove"
+    }
   }
 }

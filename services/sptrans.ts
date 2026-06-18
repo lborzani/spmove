@@ -1,7 +1,6 @@
 import type {
   SPLine,
   SPStop,
-  OSMStop,
   SPNearbyLine,
   SPPositionResponse,
   SPArrivalResponse,
@@ -86,20 +85,8 @@ export async function buscarParadas(termos: string): Promise<SPStop[]> {
   return get<SPStop[]>('/Parada/Buscar', { termosBusca: termos });
 }
 
-async function buscarTodasParadas(): Promise<SPStop[] | null> {
-  try {
-    const result = await get<SPStop[]>('/Parada/Buscar', { termosBusca: '' });
-    return result?.length > 0 ? result : null;
-  } catch {
-    return null;
-  }
-}
-
-interface OverpassElement {
-  id: number;
-  lat: number;
-  lon: number;
-  tags?: Record<string, string>;
+export async function buscarParadasPorLinha(cl: number): Promise<SPStop[]> {
+  return get<SPStop[]>('/Parada/BuscarParadasPorLinha', { codigoLinha: cl });
 }
 
 interface GeoServerFeature {
@@ -110,72 +97,14 @@ interface GeoServerFeature {
   } | null;
 }
 
-// ── OSM Overpass ─────────────────────────────────────────────────────────────
-
-export async function buscarParadasOSM(
-  lat: number,
-  lon: number,
-  radiusM = 600,
-): Promise<OSMStop[]> {
-  const query =
-    `[out:json][timeout:10];` +
-    `(node["highway"="bus_stop"](around:${radiusM},${lat},${lon});` +
-    `node["public_transport"="platform"]["bus"="yes"](around:${radiusM},${lat},${lon}););` +
-    `out body;`;
-  const res = await fetch(
-    `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`,
-  );
-  const data = (await res.json()) as { elements?: OverpassElement[] };
-  const elements: OverpassElement[] = data.elements ?? [];
-
-  const seen = new Set<number>();
-  return elements
-    .filter((el) => el.lat != null && el.lon != null && !seen.has(el.id) && seen.add(el.id))
-    .map((el) => ({
-      osmId: el.id,
-      lat: el.lat,
-      lon: el.lon,
-      name: el.tags?.name ?? el.tags?.['name:pt'] ?? '',
-      gtfsRef: el.tags?.['ref:gtfs'],
-      shelter: el.tags?.shelter === 'yes',
-      distance: haversineMeters(lat, lon, el.lat, el.lon),
-    }))
-    .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
-}
-
-export async function resolverCodigoParada(osmStop: OSMStop): Promise<number | null> {
-  try {
-    const allStops = await buscarTodasParadas();
-    if (allStops && allStops.length > 0) {
-      const nearest = allStops
-        .map((s) => ({ cp: s.cp, dist: haversineMeters(osmStop.lat, osmStop.lon, s.py, s.px) }))
-        .sort((a, b) => a.dist - b.dist)[0];
-      if (nearest && nearest.dist <= 80) return nearest.cp;
-    }
-  } catch {
-    /* try next */
-  }
-
-  if (osmStop.name) {
-    try {
-      const results = await buscarParadas(osmStop.name);
-      if (results.length > 0) {
-        const best = results
-          .map((s) => ({ cp: s.cp, dist: haversineMeters(osmStop.lat, osmStop.lon, s.py, s.px) }))
-          .sort((a, b) => a.dist - b.dist)[0];
-        if (best && best.dist <= 200) return best.cp;
-      }
-    } catch {
-      /* skip */
-    }
-  }
-
-  return null;
-}
-
 // ── Rota (GeoServer SPTrans) ─────────────────────────────────────────────────
 
 const GEOSERVER = 'https://maps.sptrans.com.br/geoserver/SIM/wms';
+
+// GeoJSON stores [lon, lat]; Leaflet needs [lat, lon]
+function geoToLatLon(pairs: number[][]): [number, number][] {
+  return pairs.map(([lon, lat]) => [lat, lon]);
+}
 
 export async function buscarRotaLinha(
   lineCode: string,
@@ -202,14 +131,11 @@ export async function buscarRotaLinha(
   const geom = feature?.geometry;
   if (!geom) return null;
 
-  // GeoJSON [lon, lat] → Leaflet [lat, lon]
   const coords: [number, number][] = [];
   if (geom.type === 'MultiLineString') {
-    for (const line of geom.coordinates as number[][][]) {
-      for (const [lon, lat] of line) coords.push([lat, lon]);
-    }
+    for (const line of geom.coordinates as number[][][]) coords.push(...geoToLatLon(line));
   } else if (geom.type === 'LineString') {
-    for (const [lon, lat] of geom.coordinates as number[][]) coords.push([lat, lon]);
+    coords.push(...geoToLatLon(geom.coordinates as number[][]));
   }
 
   return coords.length >= 2 ? coords : null;
@@ -339,6 +265,13 @@ export async function buscarLinhasProximas(
 
 export async function getPrevisaoParada(codigoParada: number): Promise<SPArrivalResponse> {
   return get<SPArrivalResponse>('/Previsao/Parada', { codigoParada });
+}
+
+export async function getPrevisaoLinhaNaParada(
+  codigoParada: number,
+  codigoLinha: number,
+): Promise<SPArrivalResponse> {
+  return get<SPArrivalResponse>('/Previsao', { codigoParada, codigoLinha });
 }
 
 // ── Utilitários ──────────────────────────────────────────────────────────────

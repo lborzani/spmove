@@ -5,7 +5,6 @@ import { STATUS_META, type StatusType } from '@/constants/theme';
 interface Props {
   status: StatusType;
   size?: number;
-  glow?: boolean;
 }
 
 export function StatusDot({ status, size = 10 }: Props) {

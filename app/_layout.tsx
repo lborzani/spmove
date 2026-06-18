@@ -24,6 +24,7 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { theme } from '@/constants/theme';
+import { SubscriptionProvider } from '@/context/SubscriptionContext';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -98,6 +99,10 @@ function AppNavigator() {
           name="settings"
           options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
         />
+        <Stack.Screen
+          name="subscription"
+          options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+        />
       </Stack>
     </>
   );
@@ -108,9 +113,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <BottomSheetModalProvider>
-            <AppNavigator />
-          </BottomSheetModalProvider>
+          <SubscriptionProvider>
+            <BottomSheetModalProvider>
+              <AppNavigator />
+            </BottomSheetModalProvider>
+          </SubscriptionProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

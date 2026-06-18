@@ -4,10 +4,9 @@ import {
   Text,
   TextInput,
   Pressable,
+  ScrollView,
   StyleSheet,
   ActivityIndicator,
-  FlatList,
-  Alert,
   Keyboard,
 } from 'react-native';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -19,27 +18,61 @@ import type {
   SPNearbyLine,
   SPVehicle,
   SPLinePosition,
-  OSMStop,
+  SPStop,
   SPArrivalLine,
+  MetroStation,
+  MetroLineData,
+  RouteColorMap,
 } from '@/constants/sptransTypes';
 import {
   buscarLinhasProximas,
   buscarLinhas,
+  buscarParadas,
+  buscarParadasPorLinha,
   getPosicaoLinha,
-  buscarParadasOSM,
-  resolverCodigoParada,
   getPrevisaoParada,
+  getPrevisaoLinhaNaParada,
   buscarRotaLinha,
   haversineMeters,
 } from '@/services/sptrans';
 import { BusMap } from '@/components/BusMap';
-import { getGtfsShape } from '@/services/gtfs';
-import { IcoLocate, IcoBusSearch } from '@/components/Icons';
+import {
+  getGtfsShape,
+  getGtfsStops,
+  getMetroStations,
+  getMetroLines,
+  getStopsNear,
+  getRouteColors,
+} from '@/services/gtfs';
+import { IcoLocate } from '@/components/Icons';
 
-const SNAP_COLLAPSED = 160;
-const SNAP_EXPANDED = 440;
+const SNAP_PEEK = 64;
+const SNAP_COLLAPSED = 380;
+const SNAP_EXPANDED = 600;
 
 type SheetMode = 'hidden' | 'nearby-lines' | 'line' | 'osm-stop';
+
+function getDisplayCode(line: SPNearbyLine | SPLine): string {
+  return 'c' in line ? (line as SPNearbyLine).c : `${(line as SPLine).lt}-${(line as SPLine).tl}`;
+}
+
+function stripRef(ed: string): string {
+  const idx = ed.search(/\s+Ref\./i);
+  return idx > 0 ? ed.slice(0, idx).trim() : ed;
+}
+
+function toRelativeTime(t: string): string {
+  const parts = t.split(':');
+  if (parts.length < 2) return t;
+  const tMin = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  let diff = tMin - nowMin;
+  if (diff < -120) diff += 24 * 60;
+  if (diff <= 1) return 'Agora';
+  if (diff < 60) return `${diff} min`;
+  return t;
+}
 
 export default function OnibusScreen() {
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -47,8 +80,12 @@ export default function OnibusScreen() {
   const [nearbyLines, setNearbyLines] = useState<SPNearbyLine[]>([]);
   const [nearbyLoading, setNearbyLoading] = useState(false);
 
-  const [osmStops, setOsmStops] = useState<OSMStop[]>([]);
-  const [selectedOsmStop, setSelectedOsmStop] = useState<OSMStop | null>(null);
+  const [nearbyStops, setNearbyStops] = useState<SPStop[]>([]);
+  const [spStops, setSpStops] = useState<SPStop[]>([]);
+  const [selectedStop, setSelectedStop] = useState<SPStop | null>(null);
+  const [metroStations, setMetroStations] = useState<MetroStation[]>([]);
+  const [metroLines, setMetroLines] = useState<MetroLineData[]>([]);
+  const [routeColors, setRouteColors] = useState<RouteColorMap>({});
   const [osmArrivals, setOsmArrivals] = useState<SPArrivalLine[]>([]);
   const [osmArrivalsLoading, setOsmArrivalsLoading] = useState(false);
 
@@ -66,6 +103,8 @@ export default function OnibusScreen() {
   });
   const [vehicles, setVehicles] = useState<SPVehicle[]>([]);
   const [lineLoading, setLineLoading] = useState(false);
+  const [activeArrivalLine, setActiveArrivalLine] = useState<SPArrivalLine | null>(null);
+  const [allRoutes, setAllRoutes] = useState<{ coords: [number, number][]; color?: string }[]>([]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [lineResults, setLineResults] = useState<SPLine[]>([]);
@@ -76,24 +115,55 @@ export default function OnibusScreen() {
   );
   const [sheetMode, setSheetMode] = useState<SheetMode>('hidden');
   const sheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => [SNAP_COLLAPSED, SNAP_EXPANDED], []);
+  const snapPoints = useMemo(() => [SNAP_PEEK, SNAP_COLLAPSED, SNAP_EXPANDED], []);
 
   const positionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const locationSub = useRef<Location.LocationSubscription | null>(null);
   const firstFix = useRef(false);
+  const activeClRef = useRef<number | null>(null);
+  const stopEpoch = useRef(0);
+  const switchEpoch = useRef(0);
+  const selectEpoch = useRef(0);
 
-  const openSheet = useCallback((expanded = true) => {
-    sheetRef.current?.snapToIndex(expanded ? 1 : 0);
-  }, []);
+  useEffect(() => {
+    if (sheetMode === 'nearby-lines') {
+      sheetRef.current?.snapToIndex(1);
+    } else if (sheetMode === 'osm-stop') {
+      sheetRef.current?.snapToIndex(2);
+    } else if (sheetMode === 'line') {
+      sheetRef.current?.close();
+    } else {
+      sheetRef.current?.snapToIndex(0);
+    }
+  }, [sheetMode]);
 
-  const closeSheet = useCallback(() => {
-    sheetRef.current?.close();
-    setSheetMode('hidden');
+  const doSearchNearby = useCallback(async (lat: number, lon: number) => {
+    setCenterOn({ lat, lon, zoom: 15 });
+    setNearbyLoading(true);
+    setNearbyLines([]);
+    setNearbyStops([]);
+    setSpStops([]);
+    setSelectedLine(null);
+    setRouteStops([]);
+    setVehicles([]);
+    setSheetMode('nearby-lines');
+    if (positionInterval.current) clearInterval(positionInterval.current);
+    try {
+      const lines = await buscarLinhasProximas(lat, lon, 500);
+      setNearbyLines(lines);
+      getStopsNear(lat, lon, 400)
+        .then(setNearbyStops)
+        .catch(() => {});
+    } catch {
+      /* silent — map still shows stops */
+    } finally {
+      setNearbyLoading(false);
+    }
   }, []);
 
   const startTracking = useCallback(async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return; // silent — map still shows, nearby disabled
+    if (status !== 'granted') return;
 
     firstFix.current = false;
     locationSub.current = await Location.watchPositionAsync(
@@ -103,53 +173,24 @@ export default function OnibusScreen() {
         setUserCoords(coords);
         if (!firstFix.current) {
           firstFix.current = true;
-          setCenterOn({ ...coords, zoom: 15 });
-          buscarParadasOSM(coords.lat, coords.lon, 600)
-            .then((stops) => setOsmStops(stops))
-            .catch(() => {});
+          doSearchNearby(coords.lat, coords.lon);
         }
       },
     );
-  }, []);
+  }, [doSearchNearby]);
 
   const centerOnUser = useCallback(() => {
     if (userCoords) setCenterOn({ ...userCoords, zoom: 16 });
   }, [userCoords]);
 
-  const searchNearby = useCallback(async () => {
-    if (!userCoords) return;
-    setCenterOn({ ...userCoords, zoom: 15 });
-    setNearbyLoading(true);
-    setNearbyLines([]);
-    setSelectedLine(null);
-    setRouteStops([]);
-    setVehicles([]);
-    if (positionInterval.current) clearInterval(positionInterval.current);
-    try {
-      const lines = await buscarLinhasProximas(userCoords.lat, userCoords.lon, 500);
-      setNearbyLines(lines);
-      if (lines.length > 0) {
-        setSheetMode('nearby-lines');
-        openSheet(false);
-      } else {
-        Alert.alert('Sem linhas', 'Nenhuma linha encontrada próxima. Verifique sua localização.');
-      }
-    } catch {
-      Alert.alert('Erro', 'Falha ao buscar linhas próximas.');
-    } finally {
-      setNearbyLoading(false);
-    }
-  }, [userCoords, openSheet]);
-
   const selectLine = useCallback(async (line: SPNearbyLine | SPLine) => {
-    const displayCode =
-      'c' in line ? (line as SPNearbyLine).c : `${(line as SPLine).lt}-${(line as SPLine).tl}`;
+    const epoch = ++selectEpoch.current;
+    const displayCode = getDisplayCode(line);
     Keyboard.dismiss();
     setSelectedLine(line);
     setLineResults([]);
     setSearchQuery('');
     setSheetMode('line');
-    sheetRef.current?.close();
     const initialSentido: 1 | 2 = 'sl' in line ? (line as SPNearbyLine).sl : 1;
     setLineLoading(true);
     setRouteStops([]);
@@ -168,7 +209,7 @@ export default function OnibusScreen() {
     const localShape1 = getGtfsShape(displayCode + '-1') ?? getGtfsShape(displayCode);
     const localShape2 = getGtfsShape(displayCode + '-2');
 
-    let [shape1, shape2] = await Promise.all([
+    const [shape1, shape2] = await Promise.all([
       localShape1
         ? Promise.resolve(localShape1)
         : buscarRotaLinha(displayCode, 1).catch(() => null),
@@ -176,19 +217,20 @@ export default function OnibusScreen() {
         ? Promise.resolve(localShape2)
         : buscarRotaLinha(displayCode, 2).catch(() => null),
     ]);
+    if (epoch !== selectEpoch.current) return;
 
     const shapes = { 1: shape1, 2: shape2 } as {
       1: [number, number][] | null;
       2: [number, number][] | null;
     };
     setRouteShapes(shapes);
-    setSentido(initialSentido);
     const activeShape = shapes[initialSentido];
     setRouteAvailable(activeShape ? true : null);
 
     const cls: { 1: number | null; 2: number | null } = { 1: null, 2: null };
     try {
       const dirs = await buscarLinhas(displayCode);
+      if (epoch !== selectEpoch.current) return;
       for (const d of dirs as SPLine[]) {
         if (d.sl === 1 || d.sl === 2) cls[d.sl] = d.cl;
       }
@@ -200,14 +242,32 @@ export default function OnibusScreen() {
 
     const activeCl = cls[initialSentido] ?? cl;
 
+    getGtfsStops(displayCode, initialSentido)
+      .then((gtfs) => {
+        if (epoch !== selectEpoch.current) return;
+        if (gtfs && gtfs.length > 0) setSpStops(gtfs);
+        else
+          buscarParadasPorLinha(activeCl)
+            .then(setSpStops)
+            .catch(() => {});
+      })
+      .catch(() => {
+        if (epoch !== selectEpoch.current) return;
+        buscarParadasPorLinha(activeCl)
+          .then(setSpStops)
+          .catch(() => {});
+      });
+
     try {
       const pos = await getPosicaoLinha(activeCl);
+      if (epoch !== selectEpoch.current) return;
       const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
       setVehicles(vs.length > 0 ? vs : (pos.vs ?? []));
     } catch {
       /* keep existing */
     }
 
+    if (epoch !== selectEpoch.current) return;
     setLineLoading(false);
 
     positionInterval.current = setInterval(async () => {
@@ -229,8 +289,33 @@ export default function OnibusScreen() {
       const cl = directionCls[s];
       if (!cl) return;
 
+      const epoch = ++switchEpoch.current;
+
+      const code = selectedLine ? getDisplayCode(selectedLine) : '';
+      if (code) {
+        getGtfsStops(code, s)
+          .then((gtfs) => {
+            if (epoch !== switchEpoch.current) return;
+            if (gtfs && gtfs.length > 0) setSpStops(gtfs);
+            else
+              buscarParadasPorLinha(cl)
+                .then(setSpStops)
+                .catch(() => {});
+          })
+          .catch(() =>
+            buscarParadasPorLinha(cl)
+              .then(setSpStops)
+              .catch(() => {}),
+          );
+      } else {
+        buscarParadasPorLinha(cl)
+          .then(setSpStops)
+          .catch(() => {});
+      }
+
       getPosicaoLinha(cl)
         .then((pos) => {
+          if (epoch !== switchEpoch.current) return;
           const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
           setVehicles(vs.length > 0 ? vs : (pos.vs ?? []));
         })
@@ -247,7 +332,7 @@ export default function OnibusScreen() {
         }
       }, 10_000);
     },
-    [directionCls],
+    [directionCls, selectedLine],
   );
 
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -306,75 +391,210 @@ export default function OnibusScreen() {
     startTracking();
   }, [startTracking]);
 
-  const selectOsmStop = useCallback(
-    async (stop: OSMStop) => {
-      setSelectedOsmStop(stop);
-      setSelectedLine(null);
-      setRouteStops([]);
-      setVehicles([]);
-      setCenterOn({ lat: stop.lat, lon: stop.lon, zoom: 17 });
-      setSheetMode('osm-stop');
-      openSheet(true);
-      setOsmArrivalsLoading(true);
-      setOsmArrivals([]);
-      if (positionInterval.current) clearInterval(positionInterval.current);
-      try {
-        const cp = await resolverCodigoParada(stop);
-        if (cp) {
-          const res = await getPrevisaoParada(cp);
-          setOsmArrivals(res.t ?? []);
-        }
-      } catch {
-        /* no arrivals */
-      }
-      setOsmArrivalsLoading(false);
-    },
-    [openSheet],
-  );
+  useEffect(() => {
+    Promise.allSettled([getMetroStations(), getMetroLines(), getRouteColors()]).then(
+      ([stationsRes, linesRes, colorsRes]) => {
+        if (stationsRes.status === 'fulfilled') setMetroStations(stationsRes.value);
+        if (linesRes.status === 'fulfilled') setMetroLines(linesRes.value);
+        if (colorsRes.status === 'fulfilled') setRouteColors(colorsRes.value);
+      },
+    );
+  }, []);
 
-  const dismissSheet = () => {
-    if (sheetMode !== 'line') closeSheet();
-    setSheetMode('hidden');
-    setSelectedLine(null);
-    setSelectedOsmStop(null);
-    setOsmArrivals([]);
-    setRouteStops([]);
+  useEffect(() => {
+    activeClRef.current = directionCls[sentido] ?? null;
+  }, [directionCls, sentido]);
+
+  // Fetch real-time vehicle positions for all lines at the stop (no chip selected)
+  useEffect(() => {
+    if (sheetMode !== 'osm-stop' || selectedLine || activeArrivalLine) return;
+    if (osmArrivals.length === 0) {
+      setVehicles([]);
+      return;
+    }
+    let active = true;
+    Promise.all(
+      osmArrivals.map(async (l) => {
+        const pos = await getPosicaoLinha(l.cl).catch(() => null);
+        if (!pos) return [] as SPVehicle[];
+        const vs: SPVehicle[] = (pos.l ?? []).flatMap((lp: SPLinePosition) => lp.vs ?? []);
+        const src = vs.length > 0 ? vs : (pos.vs ?? []);
+        return src.map((v) => ({ ...v, lineCode: l.c, lineColor: routeColors[l.c]?.color }));
+      }),
+    ).then((batches) => {
+      if (!active) return;
+      setVehicles(batches.flat());
+    });
+    return () => {
+      active = false;
+    };
+  }, [osmArrivals, sheetMode, selectedLine, activeArrivalLine, routeColors]);
+
+  // Fetch route polylines for all lines passing through the stop
+  useEffect(() => {
+    if (sheetMode !== 'osm-stop' || selectedLine || activeArrivalLine) {
+      setAllRoutes([]);
+      return;
+    }
+    if (osmArrivals.length === 0) return;
+    let active = true;
+    Promise.all(
+      osmArrivals.map(async (l) => {
+        const s: 1 | 2 = l.sl === 1 || l.sl === 2 ? (l.sl as 1 | 2) : 1;
+        const coords = await buscarRotaLinha(l.c, s).catch(() => null);
+        if (!coords) return null;
+        return { coords, color: routeColors[l.c]?.color };
+      }),
+    ).then((results) => {
+      if (!active) return;
+      setAllRoutes(results.filter((r): r is NonNullable<typeof r> => r !== null));
+    });
+    return () => {
+      active = false;
+    };
+  }, [osmArrivals, sheetMode, selectedLine, activeArrivalLine, routeColors]);
+
+  const selectArrivalChip = useCallback(async (line: SPArrivalLine | null, lineColor?: string) => {
+    setActiveArrivalLine(line);
+    setRouteShapes({ 1: null, 2: null });
+    if (!line) return; // useEffects above restore all-routes + all-vehicles view
+
+    const sentidoForLine: 1 | 2 = line.sl === 1 || line.sl === 2 ? (line.sl as 1 | 2) : 1;
+    setSentido(sentidoForLine);
+
+    try {
+      const pos = await getPosicaoLinha(line.cl);
+      const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
+      const result = (vs.length > 0 ? vs : (pos.vs ?? [])).map((v) => ({
+        ...v,
+        lineCode: line.c,
+        lineColor,
+      }));
+      setVehicles(result);
+    } catch {
+      /* keep arrivals-derived vehicles */
+    }
+
+    const localShape = getGtfsShape(line.c + '-' + sentidoForLine) ?? getGtfsShape(line.c);
+    if (localShape) {
+      setRouteShapes({ 1: localShape, 2: null });
+    } else {
+      buscarRotaLinha(line.c, sentidoForLine)
+        .then((coords) => {
+          if (coords) setRouteShapes({ 1: coords, 2: null });
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const selectStop = useCallback(async (stop: SPStop) => {
+    const epoch = ++stopEpoch.current;
+    setSelectedStop(stop);
+    setActiveArrivalLine(null);
     setVehicles([]);
     setRouteShapes({ 1: null, 2: null });
-    setSentido(1);
+    setCenterOn({ lat: stop.py, lon: stop.px, zoom: 17 });
+    setSheetMode('osm-stop');
+    setOsmArrivalsLoading(true);
+    setOsmArrivals([]);
     if (positionInterval.current) clearInterval(positionInterval.current);
-  };
+    try {
+      const cl = activeClRef.current;
 
-  const lineCode = selectedLine
-    ? 'c' in selectedLine
-      ? (selectedLine as SPNearbyLine).c
-      : `${(selectedLine as SPLine).lt}-${(selectedLine as SPLine).tl}`
-    : '';
+      const fetchWith = async (cp: number) => {
+        const r = cl ? await getPrevisaoLinhaNaParada(cp, cl) : await getPrevisaoParada(cp);
+        return r;
+      };
+
+      const startPolling = (cp: number) => {
+        positionInterval.current = setInterval(async () => {
+          if (stopEpoch.current !== epoch) return;
+          const r = await fetchWith(cp).catch(() => null);
+          if (r?.p && stopEpoch.current === epoch) setOsmArrivals(r.p.l ?? []);
+        }, 15_000);
+      };
+
+      // 1. Try stop.cp directly — valid if Olho Vivo returns p != null
+      const direct = await fetchWith(stop.cp).catch(() => null);
+      if (direct?.p != null) {
+        setOsmArrivals(direct.p.l ?? []);
+        startPolling(stop.cp);
+      } else {
+        // 2. Search by stop name
+        const pickNearest = (list: SPStop[]): { c: SPStop; d: number } =>
+          list.reduce<{ c: SPStop; d: number }>(
+            (best, c) => {
+              const d = haversineMeters(stop.py, stop.px, c.py, c.px);
+              return d < best.d ? { c, d } : best;
+            },
+            { c: list[0], d: Infinity },
+          );
+
+        let resolvedCp: number | null = null;
+
+        const byName = await buscarParadas(stop.np).catch(() => [] as SPStop[]);
+        const nearestByName = byName.length > 0 ? pickNearest(byName) : null;
+        if (nearestByName && nearestByName.d <= 300) resolvedCp = nearestByName.c.cp;
+
+        // 3. Fallback: search by stop_desc address
+        if (!resolvedCp && stop.ed) {
+          const addr = stripRef(stop.ed);
+          const byAddr = await buscarParadas(addr).catch(() => [] as SPStop[]);
+          const nearestByAddr = byAddr.length > 0 ? pickNearest(byAddr) : null;
+          if (nearestByAddr && nearestByAddr.d <= 300) {
+            resolvedCp = nearestByAddr.c.cp;
+          } else {
+            const streetOnly = addr.split(',')[0].trim();
+            const byStreet = await buscarParadas(streetOnly).catch(() => [] as SPStop[]);
+            const nearestByStreet = byStreet.length > 0 ? pickNearest(byStreet) : null;
+            if (nearestByStreet && nearestByStreet.d <= 500) resolvedCp = nearestByStreet.c.cp;
+          }
+        }
+
+        if (resolvedCp) {
+          const res = await fetchWith(resolvedCp).catch(() => null);
+          setOsmArrivals(res?.p?.l ?? []);
+          startPolling(resolvedCp);
+        }
+      }
+    } catch {
+      /* no arrivals */
+    }
+    setOsmArrivalsLoading(false);
+  }, []);
+
+  const dismissSheet = useCallback(() => {
+    if (positionInterval.current) clearInterval(positionInterval.current);
+    setSelectedLine(null);
+    setActiveArrivalLine(null);
+    setRouteStops([]);
+    setVehicles([]);
+    setSpStops([]);
+    setRouteShapes({ 1: null, 2: null });
+    setSentido(1);
+    setSelectedStop(null);
+    setOsmArrivals([]);
+    setSheetMode('nearby-lines');
+    sheetRef.current?.snapToIndex(1);
+  }, []);
+
+  const lineCode = selectedLine ? getDisplayCode(selectedLine) : '';
   const lineDest = selectedLine
     ? sentido === 1
       ? `${selectedLine.lt1} → ${selectedLine.lt0}`
       : `${selectedLine.lt0} → ${selectedLine.lt1}`
     : '';
+  const showRoute =
+    sheetMode === 'line' || (sheetMode === 'osm-stop' && (!!selectedLine || !!activeArrivalLine));
+  const displayLineCode =
+    sheetMode === 'osm-stop' && activeArrivalLine ? activeArrivalLine.c : lineCode;
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <View style={styles.mapWrapper}>
-        <BusMap
-          userCoords={userCoords}
-          stops={[]}
-          osmStops={osmStops}
-          vehicles={vehicles}
-          routeStops={sheetMode === 'line' ? routeStops : []}
-          routeLineCode={sheetMode === 'line' ? lineCode : null}
-          routeCoords={sheetMode === 'line' ? (routeShapes[sentido] ?? null) : null}
-          centerOn={centerOn}
-          onOsmStopPress={selectOsmStop}
-          onNoRoute={() => setRouteAvailable(false)}
-        />
-
-        <View style={styles.searchBar}>
+      <View style={styles.searchWrapper}>
+        <View style={styles.topSearchBar}>
           <TextInput
-            style={styles.searchInput}
+            style={styles.topSearchInput}
             placeholder="Buscar linha (ex: 8000-10)"
             placeholderTextColor={theme.textFaint}
             value={searchQuery}
@@ -385,7 +605,7 @@ export default function OnibusScreen() {
           />
           {searchQuery.length > 0 && (
             <Pressable
-              style={styles.searchClear}
+              style={styles.topSearchClear}
               onPress={() => {
                 setSearchQuery('');
                 setLineResults([]);
@@ -395,30 +615,26 @@ export default function OnibusScreen() {
             </Pressable>
           )}
         </View>
-
         {searchQuery.trim().length >= 2 && (
-          <View style={styles.dropdown}>
-            {searchLoading ? (
-              <ActivityIndicator color={theme.accent} style={{ margin: 16 }} />
-            ) : lineResults.length === 0 ? (
-              <Text style={styles.dropdownEmpty}>Nenhuma linha encontrada</Text>
-            ) : (
-              <FlatList
-                data={Object.values(
+          <View style={styles.searchDropdown}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {searchLoading ? (
+                <ActivityIndicator color={theme.accent} style={{ margin: 16 }} />
+              ) : lineResults.length === 0 ? (
+                <Text style={styles.dropdownEmpty}>Nenhuma linha encontrada</Text>
+              ) : (
+                Object.values(
                   lineResults.reduce<Record<string, SPLine[]>>((acc, l) => {
                     const key = `${l.lt}-${l.tl}`;
                     (acc[key] ??= []).push(l);
                     return acc;
                   }, {}),
-                )}
-                keyExtractor={(group) => `${group[0].lt}-${group[0].tl}`}
-                keyboardShouldPersistTaps="handled"
-                renderItem={({ item: group }) => {
+                ).map((group) => {
                   const sorted = [...group].sort((a, b) => a.sl - b.sl);
                   const ref = sorted[0];
                   const code = `${ref.lt}-${ref.tl}`;
                   return (
-                    <View style={styles.dropdownGroup}>
+                    <View key={code} style={styles.dropdownGroup}>
                       <View style={styles.dropdownGroupHeader}>
                         <Text style={styles.dropdownCode}>{code}</Text>
                         <Text style={styles.dropdownName} numberOfLines={1}>
@@ -442,131 +658,244 @@ export default function OnibusScreen() {
                       </View>
                     </View>
                   );
-                }}
-              />
-            )}
+                })
+              )}
+            </ScrollView>
           </View>
         )}
+      </View>
+      <View style={styles.mapWrapper}>
+        <BusMap
+          userCoords={userCoords}
+          stops={[]}
+          osmStops={[]}
+          spStops={
+            sheetMode === 'line' || (sheetMode === 'osm-stop' && !!selectedLine)
+              ? spStops
+              : nearbyStops
+          }
+          vehicles={vehicles}
+          routeStops={showRoute ? routeStops : []}
+          routeLineCode={showRoute ? displayLineCode : null}
+          routeCoords={showRoute ? (routeShapes[sentido] ?? null) : null}
+          routeColor={showRoute ? (routeColors[displayLineCode]?.color ?? null) : null}
+          fitRoute={sheetMode === 'line'}
+          allRoutes={allRoutes.length > 0 ? allRoutes : null}
+          selectedStopId={selectedStop?.cp ?? null}
+          metroStations={metroStations}
+          metroLines={metroLines}
+          centerOn={centerOn}
+          onSpStopPress={selectStop}
+          onNoRoute={() => setRouteAvailable(false)}
+        />
 
         <View style={styles.btnStack}>
           <Pressable
-            style={[styles.nearbyBtn, !userCoords && styles.mapBtnDisabled]}
+            style={[styles.locateBtn, !userCoords && styles.mapBtnDisabled]}
             onPress={centerOnUser}
             disabled={!userCoords}>
-            <IcoLocate size={18} color={userCoords ? theme.accent : theme.textFaint} />
-            <Text style={styles.nearbyBtnText}>Centralizar</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.nearbyBtn, !userCoords && styles.mapBtnDisabled]}
-            onPress={searchNearby}
-            disabled={!userCoords || nearbyLoading}>
-            {nearbyLoading ? (
-              <ActivityIndicator size="small" color={theme.accent} />
-            ) : (
-              <IcoBusSearch size={18} color={theme.accent} />
-            )}
-            <Text style={styles.nearbyBtnText}>Linhas Próximas</Text>
+            <IcoLocate size={22} color={userCoords ? theme.accent : theme.textFaint} />
           </Pressable>
         </View>
       </View>
 
       <BottomSheet
         ref={sheetRef}
-        index={-1}
+        index={0}
         snapPoints={snapPoints}
         enablePanDownToClose={false}
         backgroundStyle={styles.sheetBg}
         handleIndicatorStyle={styles.sheetHandleIndicator}>
-        <View style={styles.sheetHeader}>
-          <View style={styles.sheetTitleRow}>
-            <Text style={styles.sheetTitle} numberOfLines={1}>
-              {sheetMode === 'nearby-lines'
-                ? `${nearbyLines.length} linhas próximas`
-                : sheetMode === 'osm-stop' && selectedOsmStop
-                  ? selectedOsmStop.name || 'Parada'
-                  : ''}
-            </Text>
-            <Pressable onPress={dismissSheet} hitSlop={16}>
-              <Text style={styles.sheetClose}>✕</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {sheetMode === 'osm-stop' && selectedOsmStop && (
-          <BottomSheetScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
-            {selectedOsmStop.shelter && <Text style={styles.sheetSub}>🏠 Com abrigo</Text>}
-            {userCoords && (
-              <Text style={styles.sheetSub}>
-                {Math.round(
-                  haversineMeters(
-                    userCoords.lat,
-                    userCoords.lon,
-                    selectedOsmStop.lat,
-                    selectedOsmStop.lon,
-                  ),
-                )}{' '}
-                m de você
-              </Text>
-            )}
-            <Text style={styles.sectionLabel}>LINHAS QUE PASSAM AQUI</Text>
-            {osmArrivalsLoading ? (
-              <ActivityIndicator color={theme.accent} style={{ marginTop: 16 }} />
-            ) : osmArrivals.length === 0 ? (
-              <Text style={styles.emptyText}>
-                Sem previsões disponíveis. Parada pode não estar no sistema do Olho Vivo.
-              </Text>
-            ) : (
-              osmArrivals.map((a) => (
-                <View key={a.c} style={styles.arrivalRow}>
-                  <Text style={styles.arrivalCode}>{a.c}</Text>
-                  <View style={styles.arrivalTimes}>
-                    {(a.vs ?? []).slice(0, 3).map((v, i) => (
-                      <View key={i} style={styles.arrivalBadge}>
-                        <Text style={styles.arrivalTime}>{v.t}</Text>
-                      </View>
-                    ))}
-                  </View>
+        {(sheetMode === 'nearby-lines' || (sheetMode === 'osm-stop' && selectedStop)) && (
+          <>
+            <View style={styles.sheetHeader}>
+              {sheetMode === 'osm-stop' && selectedLine ? (
+                <View style={styles.sheetTitleRow}>
+                  <Pressable
+                    onPress={() => setSheetMode('line')}
+                    hitSlop={12}
+                    style={styles.backBtn}>
+                    <Text style={styles.backBtnText}>‹</Text>
+                    <Text style={styles.backBtnLabel}>{getDisplayCode(selectedLine)}</Text>
+                  </Pressable>
+                  <Text style={[styles.sheetTitle, { paddingBottom: 8 }]} numberOfLines={1}>
+                    {selectedStop?.np || 'Parada'}
+                  </Text>
                 </View>
-              ))
-            )}
-          </BottomSheetScrollView>
-        )}
+              ) : sheetMode === 'osm-stop' ? (
+                <View style={styles.sheetTitleRow}>
+                  <Text style={[styles.sheetTitle, { paddingBottom: 8 }]} numberOfLines={1}>
+                    {selectedStop?.np || 'Parada'}
+                  </Text>
+                  <Pressable onPress={dismissSheet} hitSlop={16} style={{ paddingBottom: 8 }}>
+                    <Text style={styles.sheetClose}>✕</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Text
+                  style={[styles.sheetTitle, { paddingHorizontal: 16, paddingBottom: 8 }]}
+                  numberOfLines={1}>
+                  {nearbyLoading ? 'Buscando linhas…' : `${nearbyLines.length} linhas próximas`}
+                </Text>
+              )}
+            </View>
 
-        {sheetMode === 'nearby-lines' && (
-          <BottomSheetScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
-            {Object.entries(
-              nearbyLines.reduce<Record<string, SPNearbyLine[]>>((acc, l) => {
-                (acc[l.c] ??= []).push(l);
-                return acc;
-              }, {}),
-            ).map(([code, dirs]) => {
-              const sorted = [...dirs].sort((a, b) => a.sl - b.sl);
-              const ref = sorted[0];
-              return (
-                <View key={code} style={styles.lineGroup}>
-                  <View style={styles.lineGroupHeader}>
-                    <View style={styles.lineBadge}>
-                      <Text style={styles.lineBadgeText}>{code}</Text>
+            {sheetMode === 'osm-stop' && selectedStop && (
+              <BottomSheetScrollView
+                style={styles.sheetScroll}
+                showsVerticalScrollIndicator={false}>
+                {selectedStop.ed ? (
+                  <Text style={styles.sheetSub}>{stripRef(selectedStop.ed)}</Text>
+                ) : null}
+                {userCoords && (
+                  <Text style={styles.sheetSub}>
+                    {Math.round(
+                      haversineMeters(
+                        userCoords.lat,
+                        userCoords.lon,
+                        selectedStop.py,
+                        selectedStop.px,
+                      ),
+                    )}{' '}
+                    m de você
+                  </Text>
+                )}
+
+                {osmArrivalsLoading ? (
+                  <ActivityIndicator color={theme.accent} style={{ marginTop: 20 }} />
+                ) : osmArrivals.length === 0 ? (
+                  <Text style={styles.emptyText}>
+                    Parada não encontrada no sistema do Olho Vivo.
+                  </Text>
+                ) : (
+                  <>
+                    <View style={styles.chipsWrap}>
+                      {osmArrivals.map((line, i) => {
+                        const active = activeArrivalLine?.c === line.c;
+                        const rc = routeColors[line.c];
+                        const chipBg = rc ? rc.color : active ? theme.accent : theme.surfaceElev;
+                        const chipText = rc ? rc.textColor : active ? theme.onAccent : theme.accent;
+                        return (
+                          <Pressable
+                            key={line.c ?? i}
+                            onPress={() => selectArrivalChip(active ? null : line, rc?.color)}
+                            style={[
+                              styles.lineChip,
+                              {
+                                backgroundColor: chipBg,
+                                borderColor: chipBg,
+                                opacity: active ? 1 : 0.7,
+                              },
+                            ]}>
+                            <Text style={[styles.lineChipText, { color: chipText }]}>{line.c}</Text>
+                          </Pressable>
+                        );
+                      })}
                     </View>
-                    <Text style={styles.lineGroupRoute} numberOfLines={1}>
-                      {ref.lt0} ↔ {ref.lt1}
-                    </Text>
-                  </View>
-                  <View style={styles.dirBtnRow}>
-                    {sorted.map((l) => (
-                      <Pressable key={l.cl} style={styles.dirPickBtn} onPress={() => selectLine(l)}>
-                        <Text style={styles.dirPickLabel}>{l.sl === 1 ? 'Ida' : 'Volta'}</Text>
-                        <Text style={styles.dirPickDest} numberOfLines={1}>
-                          → {l.sl === 1 ? l.lt0 : l.lt1}
-                        </Text>
-                        <Text style={styles.dirPickMeta}>{Math.round(l.nearestBusM)} m</Text>
-                      </Pressable>
+
+                    <Text style={styles.sectionLabel}>PRÓXIMAS CHEGADAS</Text>
+
+                    {(activeArrivalLine
+                      ? osmArrivals.filter((l) => l.c === activeArrivalLine.c)
+                      : osmArrivals
+                    )
+                      .flatMap((line) => (line.vs ?? []).map((v) => ({ v, line })))
+                      .sort((a, b) => a.v.t.localeCompare(b.v.t))
+                      .map(({ v, line }, i) => {
+                        const dest = line.sl === 1 ? line.lt0 : line.lt1;
+                        const rel = toRelativeTime(v.t);
+                        return (
+                          <View key={`${line.c}-${v.p}-${i}`} style={styles.gmRow}>
+                            <View style={styles.gmLeft}>
+                              <View
+                                style={[
+                                  styles.gmBadge,
+                                  routeColors[line.c] && {
+                                    backgroundColor: routeColors[line.c].color,
+                                  },
+                                ]}>
+                                <Text
+                                  style={[
+                                    styles.gmBadgeText,
+                                    routeColors[line.c] && { color: routeColors[line.c].textColor },
+                                  ]}>
+                                  {line.c}
+                                </Text>
+                              </View>
+                              <Text style={styles.gmDest} numberOfLines={1}>
+                                {dest}
+                              </Text>
+                            </View>
+                            <View style={styles.gmRight}>
+                              {v.a && <Text style={styles.gmA11y}>♿</Text>}
+                              <Text style={[styles.gmTime, rel === 'Agora' && styles.gmTimeNow]}>
+                                {rel}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                  </>
+                )}
+              </BottomSheetScrollView>
+            )}
+
+            {sheetMode === 'nearby-lines' && (
+              <BottomSheetScrollView
+                style={styles.sheetScroll}
+                showsVerticalScrollIndicator={false}>
+                {nearbyLoading ? (
+                  <View style={styles.skeletonSheet}>
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <View key={i} style={styles.skeletonSheetCard} />
                     ))}
                   </View>
-                </View>
-              );
-            })}
-          </BottomSheetScrollView>
+                ) : nearbyLines.length === 0 ? (
+                  <Text style={styles.emptyText}>
+                    Nenhuma linha encontrada próxima. Tente novamente.
+                  </Text>
+                ) : null}
+                {!nearbyLoading &&
+                  Object.entries(
+                    nearbyLines.reduce<Record<string, SPNearbyLine[]>>((acc, l) => {
+                      (acc[l.c] ??= []).push(l);
+                      return acc;
+                    }, {}),
+                  ).map(([code, dirs]) => {
+                    const sorted = [...dirs].sort((a, b) => a.sl - b.sl);
+                    const ref = sorted[0];
+                    return (
+                      <View key={code} style={styles.lineGroup}>
+                        <View style={styles.lineGroupHeader}>
+                          <View style={styles.lineBadge}>
+                            <Text style={styles.lineBadgeText}>{code}</Text>
+                          </View>
+                          <Text style={styles.lineGroupRoute} numberOfLines={1}>
+                            {ref.lt0} ↔ {ref.lt1}
+                          </Text>
+                        </View>
+                        <View style={styles.dirBtnRow}>
+                          {sorted.map((l) => (
+                            <Pressable
+                              key={l.cl}
+                              style={styles.dirPickBtn}
+                              onPress={() => selectLine(l)}>
+                              <Text style={styles.dirPickLabel}>
+                                {l.sl === 1 ? 'Ida' : 'Volta'}
+                              </Text>
+                              <Text style={styles.dirPickDest} numberOfLines={1}>
+                                → {l.sl === 1 ? l.lt0 : l.lt1}
+                              </Text>
+                              <Text style={styles.dirPickMeta}>{Math.round(l.nearestBusM)} m</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </View>
+                    );
+                  })}
+              </BottomSheetScrollView>
+            )}
+          </>
         )}
       </BottomSheet>
 
@@ -630,46 +959,62 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   mapWrapper: { flex: 1, position: 'relative' },
 
-  searchBar: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    right: 12,
+  searchWrapper: {
+    zIndex: 99,
+    elevation: 99,
   },
-  searchInput: {
-    backgroundColor: `${theme.surface}f0`,
+  topSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: theme.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    height: 56,
+  },
+  topSearchInput: {
+    flex: 1,
+    backgroundColor: theme.surfaceElev,
     borderWidth: 1,
     borderColor: theme.border,
     borderRadius: theme.radiusCard,
     paddingHorizontal: 14,
-    paddingRight: 38,
+    paddingRight: 40,
     paddingVertical: 10,
     color: theme.text,
     fontSize: 14,
   },
-  searchClear: {
+  topSearchClear: {
     position: 'absolute',
-    right: 0,
+    right: 12,
     top: 0,
     bottom: 0,
-    width: 38,
+    width: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
   searchClearText: { color: theme.textDim, fontSize: 15 },
-
-  dropdown: {
+  searchDropdown: {
     position: 'absolute',
-    top: 62,
-    left: 12,
-    right: 12,
+    top: 56,
+    left: 0,
+    right: 0,
+    maxHeight: 380,
     backgroundColor: theme.surface,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
     borderWidth: 1,
+    borderTopWidth: 0,
     borderColor: theme.border,
-    borderRadius: theme.radiusCard,
-    maxHeight: 220,
-    zIndex: 10,
+    zIndex: 100,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
   },
+
   dropdownGroup: {
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -700,25 +1045,17 @@ const styles = StyleSheet.create({
 
   btnStack: {
     position: 'absolute',
-    bottom: 16,
-    right: 14,
-    flexDirection: 'column',
-    gap: 10,
-    alignItems: 'flex-end',
+    top: 12,
+    right: 12,
   },
 
-  nearbyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: `${theme.surface}f5`,
+  locateBtn: {
+    backgroundColor: `${theme.surface}f0`,
     borderWidth: 1,
     borderColor: theme.border,
-    borderRadius: 23,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 10,
+    padding: 10,
   },
-  nearbyBtnText: { color: theme.accent, fontSize: 13, fontWeight: '700' },
   mapBtnDisabled: { opacity: 0.4 },
 
   sheetBg: {
@@ -740,7 +1077,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     width: '100%',
+    gap: 8,
   },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    paddingRight: 8,
+    borderRightWidth: 1,
+    borderRightColor: theme.border,
+    marginRight: 4,
+    paddingBottom: 8,
+  },
+  backBtnText: { color: theme.accent, fontSize: 22, lineHeight: 22, fontWeight: '300' },
+  backBtnLabel: { color: theme.accent, fontSize: 12, fontWeight: '700' },
   sheetTitle: { flex: 1, color: theme.text, fontSize: 15, fontWeight: '700' },
   sheetClose: { color: theme.textDim, fontSize: 18, paddingLeft: 16 },
   sheetSub: { color: theme.textDim, fontSize: 12, marginHorizontal: 16, marginTop: 6 },
@@ -792,6 +1143,14 @@ const styles = StyleSheet.create({
 
   emptyText: { color: theme.textFaint, fontSize: 12, marginTop: 10 },
 
+  skeletonSheet: { paddingTop: 8, gap: 12 },
+  skeletonSheetCard: {
+    height: 76,
+    borderRadius: 10,
+    backgroundColor: theme.surfaceElev,
+    opacity: 0.6,
+  },
+
   linePanel: {
     backgroundColor: theme.surface,
     borderTopWidth: 1,
@@ -842,21 +1201,45 @@ const styles = StyleSheet.create({
   },
   sentidoDestActive: { color: theme.onAccent, opacity: 0.85 },
 
-  arrivalRow: {
+  chipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  lineChip: {
+    backgroundColor: theme.surfaceElev,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  lineChipText: { color: theme.accent, fontSize: 11, fontWeight: '700' },
+
+  gmRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
+    justifyContent: 'space-between',
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
+    gap: 10,
   },
-  arrivalCode: { color: theme.accent, fontWeight: '700', fontSize: 13, minWidth: 72 },
-  arrivalTimes: { flexDirection: 'row', gap: 6, flex: 1, flexWrap: 'wrap' },
-  arrivalBadge: {
-    backgroundColor: theme.surfaceElev,
+  gmLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 },
+  gmBadge: {
+    backgroundColor: theme.accent,
     borderRadius: 4,
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
+    minWidth: 72,
+    alignItems: 'center',
   },
-  arrivalTime: { color: theme.text, fontSize: 12, fontWeight: '600' },
+  gmBadgeText: { color: theme.onAccent, fontWeight: '800', fontSize: 12 },
+  gmDest: { color: theme.textDim, fontSize: 12, flex: 1 },
+  gmRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  gmA11y: { fontSize: 13 },
+  gmTime: { color: theme.text, fontWeight: '700', fontSize: 15, minWidth: 48, textAlign: 'right' },
+  gmTimeNow: { color: theme.accent },
 });

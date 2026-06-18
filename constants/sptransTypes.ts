@@ -26,6 +26,8 @@ export interface SPVehicle {
   py: number; // latitude
   px: number; // longitude
   ta?: string; // last update ISO timestamp
+  lineCode?: string; // display code, e.g. "5103-10" — set client-side
+  lineColor?: string; // hex color, set client-side
 }
 
 export interface SPLinePosition {
@@ -45,23 +47,37 @@ export interface SPPositionResponse {
 }
 
 export interface SPArrivalVehicle {
-  p: number | string;
-  t: string; // predicted arrival e.g. "5 min"
-  a: boolean;
-  ta: string;
+  p: number | string; // vehicle ID
+  t: string; // predicted arrival time e.g. "13:58"
+  a: boolean; // accessible
+  ta: string; // last update ISO timestamp
+  py?: number;
+  px?: number;
 }
 
 export interface SPArrivalLine {
-  c: string;
+  c: string; // display code e.g. "5103-10"
   cl: number;
+  sl: number;
+  lt0: string;
+  lt1: string;
+  qv: number;
   vs: SPArrivalVehicle[];
-  lt0?: string;
-  lt1?: string;
+}
+
+// Real API structure: GET /Previsao/Parada?codigoParada={cp}
+// Returns { hr, p: { cp, np, py, px, l: SPArrivalLine[] } | null }
+export interface SPArrivalStop {
+  cp: number;
+  np: string;
+  py: number;
+  px: number;
+  l: SPArrivalLine[];
 }
 
 export interface SPArrivalResponse {
-  p: number; // stop code
-  t: SPArrivalLine[]; // lines with arrival predictions
+  hr: string;
+  p: SPArrivalStop | null;
 }
 
 export interface OSMStop {
@@ -73,6 +89,26 @@ export interface OSMStop {
   shelter?: boolean;
   distance?: number;
 }
+
+export interface MetroStation {
+  id: number;
+  name: string;
+  lat: number;
+  lon: number;
+  line?: string;
+  network?: string;
+  color?: string;
+}
+
+export interface MetroLineData {
+  id: string;
+  line: string;
+  network: string;
+  color: string;
+  coords: [number, number][];
+}
+
+export type RouteColorMap = Record<string, { color: string; textColor: string }>;
 
 export interface SPNearbyLine {
   cl: number; // line code (direction-specific)

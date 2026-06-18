@@ -1,20 +1,33 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
-import type { SPStop, SPVehicle, OSMStop } from '@/constants/sptransTypes';
+import type {
+  SPStop,
+  SPVehicle,
+  OSMStop,
+  MetroStation,
+  MetroLineData,
+} from '@/constants/sptransTypes';
 
 interface BusMapProps {
   userCoords?: { lat: number; lon: number } | null;
   stops?: SPStop[];
   osmStops?: OSMStop[];
+  spStops?: SPStop[];
   vehicles?: SPVehicle[];
   routeStops?: SPStop[];
   routeLineCode?: string | null;
-  routeCoords?: [number, number][] | null; // GTFS shape — skips OSM Overpass when set
+  routeCoords?: [number, number][] | null;
+  routeColor?: string | null;
+  fitRoute?: boolean;
+  allRoutes?: { coords: [number, number][]; color?: string }[] | null;
   selectedStopId?: number | null;
+  metroStations?: MetroStation[];
+  metroLines?: MetroLineData[];
   centerOn?: { lat: number; lon: number; zoom?: number } | null;
   onStopPress?: (stop: SPStop) => void;
   onOsmStopPress?: (stop: OSMStop) => void;
+  onSpStopPress?: (stop: SPStop) => void;
   onNoRoute?: () => void;
 }
 
@@ -53,6 +66,41 @@ const HTML = `<!DOCTYPE html>
       0%   { transform: translate(-50%,-50%) scale(1);   opacity: 0.8; }
       100% { transform: translate(-50%,-50%) scale(3.2); opacity: 0; }
     }
+    .stop-pin {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #f5c54a; border: 2px solid #1e2e2b;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.55);
+      cursor: pointer; position: relative;
+    }
+    .stop-pin.sel {
+      width: 14px; height: 14px;
+      background: #4FE566; border-color: #fff;
+    }
+    .bus-body {
+      position: relative; width: 26px; height: 17px;
+      background: #3D9EFF; border-radius: 4px;
+      border: 2px solid #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.55);
+    }
+    .bus-body.acc { background: #4FE566; }
+    .bus-body::before {
+      content: ''; position: absolute;
+      top: 3px; left: 2px; right: 2px; height: 4px;
+      background: rgba(255,255,255,0.28); border-radius: 2px;
+    }
+    .bus-wheel {
+      position: absolute; bottom: -5px;
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #1e2e2b; border: 1.5px solid #fff;
+    }
+    .bus-wheel.l { left: 2px; }
+    .bus-wheel.r { right: 2px; }
+    .metro-pin {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.9);
+      box-shadow: 0 1px 6px rgba(0,0,0,0.7);
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -74,11 +122,19 @@ const HTML = `<!DOCTYPE html>
     maxNativeZoom: 18,
   }).addTo(map);
 
-  var userMarker = null;
-  var stopMarkers = [];
-  var osmMarkers  = [];
-  var busMarkers  = [];
-  var routeLine   = null;
+  var userMarker      = null;
+  var stopMarkers     = [];
+  var osmMarkers      = [];
+  var spMarkers       = [];
+  var busMarkers      = [];
+  var busMarkerMap    = {};
+  var metroMarkers    = [];
+  var metroPolylines  = [];
+  var metroStationsCache = [];
+  var metroLinesCache    = [];
+  var METRO_ZOOM_THRESHOLD = 15;
+  var routeLine       = null;
+  var allRouteLines   = [];
 
   function send(data) {
     try { window.ReactNativeWebView.postMessage(JSON.stringify(data)); } catch(e) {}
@@ -171,27 +227,148 @@ const HTML = `<!DOCTYPE html>
     });
   }
 
-  function setVehicles(vehicles) {
-    busMarkers.forEach(function(m) { m.remove(); });
-    busMarkers = [];
+  function setSpStops(stops, selectedId) {
+    spMarkers.forEach(function(m) { m.remove(); });
+    spMarkers = [];
+    if (!stops.length) return;
+    stops.forEach(function(stop) {
+      var sel = stop.cp === selectedId;
+      var pinCls = 'stop-pin' + (sel ? ' sel' : '');
+      var icon = L.divIcon({
+        className: '',
+        html: '<div class="' + pinCls + '"></div>',
+        iconSize: sel ? [14, 14] : [10, 10],
+        iconAnchor: sel ? [7, 7] : [5, 5],
+      });
+      var m = L.marker([stop.py, stop.px], { icon: icon, interactive: true, zIndexOffset: sel ? 200 : 0 }).addTo(map);
+      var popup = '<b>' + (stop.np || 'Parada') + '</b>';
+      if (stop.ed) popup += '<br><small>' + stop.ed + '</small>';
+      m.bindPopup(popup);
+      m.on('click', function(e) {
+        L.DomEvent.stopPropagation(e);
+        send({ type: 'sp-stop-tap', stop: stop });
+      });
+      m._stopData = stop;
+      m._isSel = sel;
+      spMarkers.push(m);
+    });
+    if (map.getZoom() < METRO_ZOOM_THRESHOLD) {
+      spMarkers.forEach(function(m) { m.remove(); });
+    }
+  }
 
-    vehicles.forEach(function(v) {
-      if (v.py == null || v.px == null) return;
-      var m = L.circleMarker([v.py, v.px], {
-        radius: 7,
-        fillColor: v.a ? '#1a6ef5' : '#666666',
-        fillOpacity: 1,
-        color: '#ffffff',
-        weight: 2,
-      }).addTo(map);
-      m.bindPopup('Ônibus ' + v.p);
-      busMarkers.push(m);
+  function refreshSelectedSpStop(id) {
+    spMarkers.forEach(function(m) {
+      var isSel = m._stopData && m._stopData.cp === id;
+      if (m._isSel === isSel) return;
+      m._isSel = isSel;
+      var pinCls = 'stop-pin' + (isSel ? ' sel' : '');
+      m.setIcon(L.divIcon({
+        className: '',
+        html: '<div class="' + pinCls + '"></div>',
+        iconSize: isSel ? [14, 14] : [10, 10],
+        iconAnchor: isSel ? [7, 7] : [5, 5],
+      }));
+      m.setZIndexOffset(isSel ? 200 : 0);
     });
   }
 
-  function drawPolyline(coords, fit) {
+  // Incremental update: move existing markers, add new ones, remove stale ones.
+  // Avoids full DOM teardown/rebuild on every 10s polling tick.
+  function setVehicles(vehicles) {
+    var seen = {};
+    vehicles.forEach(function(v) {
+      if (v.py == null || v.px == null) return;
+      seen[v.p] = true;
+      var lc = v.lineColor;
+      var accCls = (v.a && !lc) ? ' acc' : '';
+      var styleAttr = lc ? ' style="background:' + lc + '"' : '';
+      var html = '<div class="bus-body' + accCls + '"' + styleAttr + '><span class="bus-wheel l"></span><span class="bus-wheel r"></span></div>';
+      if (busMarkerMap[v.p]) {
+        busMarkerMap[v.p].setLatLng([v.py, v.px]);
+        busMarkerMap[v.p].setIcon(L.divIcon({ className: '', html: html, iconSize: [26, 22], iconAnchor: [13, 11] }));
+      } else {
+        var icon = L.divIcon({ className: '', html: html, iconSize: [26, 22], iconAnchor: [13, 11] });
+        var m = L.marker([v.py, v.px], { icon: icon, zIndexOffset: 500 }).addTo(map);
+        var popup = '<b>Ônibus ' + v.p + '</b>' + (v.a ? ' ♿' : '');
+        if (v.lineCode) popup += '<br><small>Linha ' + v.lineCode + '</small>';
+        m.bindPopup(popup);
+        busMarkerMap[v.p] = m;
+      }
+    });
+    for (var id in busMarkerMap) {
+      if (!seen[id]) { busMarkerMap[id].remove(); delete busMarkerMap[id]; }
+    }
+    busMarkers = [];
+    for (var id in busMarkerMap) { busMarkers.push(busMarkerMap[id]); }
+  }
+
+  function clearAllRoutes() {
+    allRouteLines.forEach(function(pl) { pl.remove(); });
+    allRouteLines = [];
+  }
+
+  function setMultiRoute(routes) {
+    clearAllRoutes();
     if (routeLine) { routeLine.remove(); routeLine = null; }
-    routeLine = L.polyline(coords, { color: '#3D9EFF', weight: 5, opacity: 0.9 }).addTo(map);
+    routes.forEach(function(r) {
+      if (!r.coords || r.coords.length < 2) return;
+      var pl = L.polyline(r.coords, { color: r.color || '#3D9EFF', weight: 4, opacity: 0.65 }).addTo(map);
+      allRouteLines.push(pl);
+    });
+  }
+
+  function buildMetroMarkers(stations) {
+    stations.forEach(function(s) {
+      var isCptm = (s.network || '').includes('CPTM');
+      var shape = isCptm ? '3px' : '50%';
+      var html = '<div class="metro-pin" style="background:' + (s.color || '#1B3FA6') + ';border-radius:' + shape + ';"></div>';
+      var icon = L.divIcon({ className: '', html: html, iconSize: [14, 14], iconAnchor: [7, 7] });
+      var m = L.marker([s.lat, s.lon], { icon: icon, zIndexOffset: 50 }).addTo(map);
+      m.bindPopup('<b>' + s.name + '</b><br><small>' + (s.network || '') + ' · Linha ' + (s.line || '') + '</small>');
+      metroMarkers.push(m);
+    });
+  }
+
+  function renderMetro() {
+    var zoom = map.getZoom();
+    var showDetails = zoom >= METRO_ZOOM_THRESHOLD;
+
+    spMarkers.forEach(function(m) { showDetails ? m.addTo(map) : m.remove(); });
+
+    if (!showDetails) {
+      metroMarkers.forEach(function(m) { m.remove(); });
+      metroMarkers = [];
+      if (metroPolylines.length === 0) {
+        metroLinesCache.forEach(function(line) {
+          var pl = L.polyline(line.coords, { color: line.color, weight: 3.5, opacity: 0.9 }).addTo(map);
+          pl.bindPopup('<b>' + line.network + ' — Linha ' + line.line + '</b>');
+          metroPolylines.push(pl);
+        });
+      }
+    } else {
+      metroPolylines.forEach(function(pl) { pl.remove(); });
+      metroPolylines = [];
+      if (metroMarkers.length === 0) {
+        buildMetroMarkers(metroStationsCache);
+      }
+    }
+  }
+
+  map.on('zoomend', renderMetro);
+
+  function setMetroStations(stations) {
+    metroPolylines.forEach(function(pl) { pl.remove(); });
+    metroPolylines = [];
+    metroMarkers.forEach(function(m) { m.remove(); });
+    metroMarkers = [];
+    metroStationsCache = stations || [];
+    renderMetro();
+  }
+
+  function drawPolyline(coords, fit, color) {
+    if (routeLine) { routeLine.remove(); routeLine = null; }
+    routeLine = L.polyline(coords, { color: color || '#3D9EFF', weight: 5, opacity: 0.55 }).addTo(map);
     if (fit) {
       try { map.fitBounds(routeLine.getBounds().pad(0.08), { animate: true }); } catch(e) {}
     }
@@ -225,14 +402,14 @@ const HTML = `<!DOCTYPE html>
 
   var lastRouteKey = null;
 
-  function setRoute(coords, lineCode, gtfsCoords, routeKey) {
-    var fit = routeKey !== lastRouteKey;
+  function setRoute(coords, lineCode, gtfsCoords, routeKey, allowFit, color) {
+    clearAllRoutes();
+    var fit = allowFit && routeKey !== lastRouteKey;
     lastRouteKey = routeKey;
     if (routeLine) { routeLine.remove(); routeLine = null; }
 
-    // GeoServer/GTFS shape tem prioridade — não depende de coords
     if (gtfsCoords && gtfsCoords.length >= 2) {
-      drawPolyline(gtfsCoords, fit);
+      drawPolyline(gtfsCoords, fit, color);
       return;
     }
 
@@ -240,7 +417,6 @@ const HTML = `<!DOCTYPE html>
 
     if (!lineCode) { noRouteAvailable(); return; }
 
-    // Fallback: OSM Overpass
     var codes = [lineCode, lineCode.replace('-',''), lineCode.replace(/[^0-9A-Za-z]/g,'')];
     var unique = codes.filter(function(c,i){ return codes.indexOf(c)===i; });
     var q = '[out:json][timeout:12];(';
@@ -259,15 +435,15 @@ const HTML = `<!DOCTYPE html>
         rels.sort(function(a,b){ return (b.members||[]).length-(a.members||[]).length; });
         var path = assembleOsmWays(rels[0].members||[]);
         if (path.length < 2) { noRouteAvailable(); return; }
-        drawPolyline(path, fit);
+        drawPolyline(path, fit, color);
       })
       .catch(function(){ clearTimeout(timer); noRouteAvailable(); });
   }
 
   function clearLine() {
-    busMarkers.forEach(function(m) { m.remove(); });
-    busMarkers = [];
     if (routeLine) { routeLine.remove(); routeLine = null; }
+    clearAllRoutes();
+    // busMarkers managed exclusively by setVehicles
   }
 
   function panTo(lat, lon, zoom) {
@@ -282,9 +458,16 @@ const HTML = `<!DOCTYPE html>
         case 'set-stops':    setStops(msg.stops, msg.selectedId); break;
         case 'set-vehicles': setVehicles(msg.vehicles); break;
         case 'set-osm-stops': setOsmStops(msg.stops); break;
-        case 'set-route':    setRoute(msg.coords, msg.lineCode || null, msg.gtfsCoords || null, msg.routeKey || null); break;
+        case 'set-sp-stops':     setSpStops(msg.stops, msg.selectedId || null); break;
+        case 'set-metro':
+          metroLinesCache = msg.lines || [];
+          setMetroStations(msg.stations || []);
+          break;
+        case 'set-route':      setRoute(msg.coords, msg.lineCode || null, msg.gtfsCoords || null, msg.routeKey || null, msg.fit !== false, msg.color || null); break;
+        case 'set-multi-route': setMultiRoute(msg.routes || []); break;
+        case 'clear-multi-route': clearAllRoutes(); break;
         case 'clear-line':   clearLine(); break;
-        case 'select-stop':  refreshSelectedStop(msg.id); break;
+        case 'select-stop':  refreshSelectedStop(msg.id); refreshSelectedSpStop(msg.id); break;
         case 'pan-to':       panTo(msg.lat, msg.lon, msg.zoom); break;
       }
     } catch(e) {}
@@ -296,18 +479,25 @@ const HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-export function BusMap({
+export const BusMap = React.memo(function BusMap({
   userCoords,
   stops,
   osmStops,
+  spStops,
   vehicles,
   routeStops,
   routeLineCode,
   routeCoords,
+  routeColor,
+  fitRoute,
+  allRoutes,
   selectedStopId,
+  metroStations,
+  metroLines,
   centerOn,
   onStopPress,
   onOsmStopPress,
+  onSpStopPress,
   onNoRoute,
 }: BusMapProps) {
   const wvRef = useRef<WebView>(null);
@@ -350,6 +540,14 @@ export function BusMap({
   }, [osmStops, send]);
 
   useEffect(() => {
+    send({ type: 'set-sp-stops', stops: spStops ?? [], selectedId: selectedStopId ?? null });
+  }, [spStops, selectedStopId, send]);
+
+  useEffect(() => {
+    send({ type: 'select-stop', id: selectedStopId ?? null });
+  }, [selectedStopId, send]);
+
+  useEffect(() => {
     send({ type: 'set-vehicles', vehicles: vehicles ?? [] });
   }, [vehicles, send]);
 
@@ -366,8 +564,22 @@ export function BusMap({
       lineCode: routeLineCode ?? null,
       gtfsCoords: routeCoords ?? null,
       routeKey: routeLineCode ?? null,
+      fit: fitRoute !== false,
+      color: routeColor ?? null,
     });
-  }, [routeStops, routeLineCode, routeCoords, send]);
+  }, [routeStops, routeLineCode, routeCoords, routeColor, fitRoute, send]);
+
+  useEffect(() => {
+    if (allRoutes && allRoutes.length > 0) {
+      send({ type: 'set-multi-route', routes: allRoutes });
+    } else {
+      send({ type: 'clear-multi-route' });
+    }
+  }, [allRoutes, send]);
+
+  useEffect(() => {
+    send({ type: 'set-metro', stations: metroStations ?? [], lines: metroLines ?? [] });
+  }, [metroStations, metroLines, send]);
 
   useEffect(() => {
     if (!centerOn) return;
@@ -388,12 +600,15 @@ export function BusMap({
         if (msg.type === 'osm-stop-tap' && onOsmStopPress) {
           onOsmStopPress(msg.stop as OSMStop);
         }
+        if (msg.type === 'sp-stop-tap' && onSpStopPress) {
+          onSpStopPress(msg.stop as SPStop);
+        }
         if (msg.type === 'no-route' && onNoRoute) {
           onNoRoute();
         }
       } catch {}
     },
-    [onStopPress, onOsmStopPress, onNoRoute],
+    [onStopPress, onOsmStopPress, onSpStopPress, onNoRoute],
   );
 
   return (
@@ -409,7 +624,7 @@ export function BusMap({
       allowFileAccess
     />
   );
-}
+});
 
 const styles = StyleSheet.create({
   map: { flex: 1 },

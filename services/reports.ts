@@ -1,10 +1,4 @@
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
-const BACKEND_KEY = process.env.EXPO_PUBLIC_BACKEND_KEY ?? '';
-
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  ...(BACKEND_KEY ? { 'x-api-key': BACKEND_KEY } : {}),
-});
+import { BACKEND_URL, authHeaders } from './auth';
 
 export type ReportCategory = 'atraso' | 'superlotacao' | 'acidente' | 'outro';
 

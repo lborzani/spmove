@@ -10,8 +10,10 @@ import { getGlobalEnabled, setGlobalEnabled } from '@/constants/notifPrefs';
 import { requestNotificationPermissions } from '@/services/notifications';
 import { registerWithBackend, unregisterFromBackend } from '@/services/pushRegistration';
 import { getFavorites } from '@/constants/favPrefs';
+import { useSubscription } from '@/context/SubscriptionContext';
 
 export default function SettingsScreen() {
+  const { isPremium } = useSubscription();
   const [globalEnabled, setGlobal] = useState(false);
   const [permGranted, setPermGranted] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -65,6 +67,27 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>PREMIUM</Text>
+          <Pressable onPress={() => router.push('/subscription' as never)} style={styles.row}>
+            <View style={styles.rowInfo}>
+              <Text style={styles.rowLabel}>
+                {isPremium ? 'SPMove Premium ativo' : 'Remover anúncios'}
+              </Text>
+              <Text style={styles.rowSub}>
+                {isPremium
+                  ? 'Obrigado por apoiar o projeto.'
+                  : 'Assine para uma experiência sem anúncios.'}
+              </Text>
+            </View>
+            {!isPremium && (
+              <Text style={[styles.infoValue, { color: theme.accent, fontWeight: '700' }]}>
+                Assinar
+              </Text>
+            )}
+          </Pressable>
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>NOTIFICAÇÕES</Text>
           <View style={styles.row}>

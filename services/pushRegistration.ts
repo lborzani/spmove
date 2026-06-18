@@ -1,10 +1,9 @@
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
-const BACKEND_KEY = process.env.EXPO_PUBLIC_BACKEND_KEY ?? '';
+import { BACKEND_URL, authHeaders } from './auth';
 
-export async function getExpoPushToken(): Promise<string | null> {
+async function getExpoPushToken(): Promise<string | null> {
   const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
   if (!projectId) {
     // eslint-disable-next-line no-console
@@ -34,10 +33,7 @@ export async function registerWithBackend(enabledLines: string[]): Promise<void>
   try {
     const res = await fetch(`${BACKEND_URL}/api/register`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(BACKEND_KEY ? { 'x-api-key': BACKEND_KEY } : {}),
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ token, lines: enabledLines }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -56,10 +52,7 @@ export async function unregisterFromBackend(): Promise<void> {
   try {
     await fetch(`${BACKEND_URL}/api/unregister`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(BACKEND_KEY ? { 'x-api-key': BACKEND_KEY } : {}),
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ token }),
     });
   } catch (err) {

@@ -20,6 +20,7 @@ import { getFavorites, toggleFavorite } from '@/constants/favPrefs';
 import { getGlobalEnabled } from '@/constants/notifPrefs';
 import { registerWithBackend } from '@/services/pushRegistration';
 import { fetchReportsSummary } from '@/services/reports';
+import { AdBanner } from '@/components/AdBanner';
 
 function MiniStat({ n, label, color }: { n: number; label: string; color: string }) {
   return (
@@ -264,6 +265,8 @@ export default function HomeScreen() {
           </View>
         )}
       </ScrollView>
+
+      <AdBanner />
     </SafeAreaView>
   );
 }

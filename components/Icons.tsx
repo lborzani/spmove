@@ -247,16 +247,7 @@ export function IcoRefresh({ size = 22, color = '#f6fff4', strokeWidth = 1.7 }: 
   );
 }
 
-// 4-pointed sparkle star
-export function Sparkle({ size = 22, color = '#4FE566' }: { size?: number; color?: string }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-      <Path d="M12 1.5 C 12.6 7.6 16.4 11.4 22.5 12 C 16.4 12.6 12.6 16.4 12 22.5 C 11.4 16.4 7.6 12.6 1.5 12 C 7.6 11.4 11.4 7.6 12 1.5 Z" />
-    </Svg>
-  );
-}
-
-// App logo — same sparkle, standalone
+// App logo — standalone sparkle
 export function IcoLogo({ size = 28, color = '#4FE566' }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 32 32" fill={color}>
