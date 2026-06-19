@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet, Image, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import {
   BottomSheetModal,
   BottomSheetScrollView,
@@ -7,9 +7,8 @@ import {
   BottomSheetBackdrop,
 } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
-import * as ImagePicker from 'expo-image-picker';
 import { theme } from '@/constants/theme';
-import { IcoThumbUp, IcoThumbDown, IcoCamera, IcoPlus } from './Icons';
+import { IcoThumbUp, IcoThumbDown, IcoPlus } from './Icons';
 import {
   fetchReports,
   createReport,
@@ -67,14 +66,6 @@ function ReportCard({ report, onVote }: ReportCardProps) {
 
       {report.description ? <Text style={styles.cardDesc}>{report.description}</Text> : null}
 
-      {report.image_b64 ? (
-        <Image
-          source={{ uri: `data:image/jpeg;base64,${report.image_b64}` }}
-          style={styles.cardImage}
-          resizeMode="cover"
-        />
-      ) : null}
-
       <View style={styles.voteRow}>
         <Pressable
           onPress={() => onVote(report.id, 1)}
@@ -113,7 +104,6 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
   const [category, setCategory] = useState<ReportCategory>('atraso');
   const [station, setStation] = useState<string | null>(null);
   const [description, setDescription] = useState('');
-  const [imageB64, setImageB64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const snapPoints = useMemo(() => ['75%'], []);
@@ -127,29 +117,6 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
 
   const dismiss = useCallback(() => sheetRef.current?.dismiss(), [sheetRef]);
 
-  const pickImage = useCallback(async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permissão negada', 'Acesso à galeria negado.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.4,
-      base64: true,
-    });
-    if (!result.canceled && result.assets[0]?.base64) {
-      const b64 = result.assets[0].base64;
-      if (b64.length > 3_000_000) {
-        Alert.alert('Imagem muito grande', 'Escolha uma imagem menor.');
-        return;
-      }
-      setImageB64(b64);
-    }
-  }, []);
-
   const handleSubmit = useCallback(async () => {
     setLoading(true);
     try {
@@ -160,11 +127,9 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
         category,
         station: station ?? undefined,
         description: description.trim() || undefined,
-        imageB64: imageB64 ?? undefined,
       });
       onCreated(report);
       setDescription('');
-      setImageB64(null);
       setCategory('atraso');
       setStation(null);
       dismiss();
@@ -178,7 +143,7 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
     } finally {
       setLoading(false);
     }
-  }, [lineNum, category, station, description, imageB64, onCreated, dismiss]);
+  }, [lineNum, category, station, description, onCreated, dismiss]);
 
   return (
     <BottomSheetModal
@@ -256,12 +221,6 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
         />
 
         <View style={styles.modalActions}>
-          <Pressable onPress={pickImage} style={styles.imageBtn}>
-            <IcoCamera size={16} color={imageB64 ? theme.accent : theme.textDim} strokeWidth={2} />
-            <Text style={[styles.imageBtnText, imageB64 && { color: theme.accent }]}>
-              {imageB64 ? 'Foto anexada' : 'Adicionar foto'}
-            </Text>
-          </Pressable>
           <Pressable
             onPress={handleSubmit}
             style={[styles.submitBtn, loading && { opacity: 0.6 }]}
@@ -422,8 +381,6 @@ const styles = StyleSheet.create({
   confirmedText: { fontSize: 9, fontWeight: '700', color: theme.accent, letterSpacing: 0.5 },
   timeText: { color: theme.textFaint, fontSize: 11, marginLeft: 'auto' },
   cardDesc: { color: theme.text, fontSize: 13, lineHeight: 18 },
-  cardImage: { width: '100%', height: 160, borderRadius: 8 },
-
   voteRow: { flexDirection: 'row', gap: 8 },
   voteBtn: {
     flexDirection: 'row',
@@ -494,18 +451,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   modalActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  imageBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.border,
-    flex: 1,
-  },
-  imageBtnText: { color: theme.textDim, fontSize: 13 },
   submitBtn: {
     backgroundColor: theme.accent,
     paddingHorizontal: 24,

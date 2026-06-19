@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { router } from 'expo-router';
 import {
   View,
   Text,
@@ -48,6 +49,7 @@ import { IcoLocate } from '@/components/Icons';
 
 const SNAP_PEEK = 64;
 const SNAP_COLLAPSED = 380;
+
 const SNAP_EXPANDED = 600;
 
 type SheetMode = 'hidden' | 'nearby-lines' | 'line' | 'osm-stop';
@@ -59,6 +61,60 @@ function getDisplayCode(line: SPNearbyLine | SPLine): string {
 function stripRef(ed: string): string {
   const idx = ed.search(/\s+Ref\./i);
   return idx > 0 ? ed.slice(0, idx).trim() : ed;
+}
+
+function vehiclesFromArrivals(lines: SPArrivalLine[], colors: RouteColorMap): SPVehicle[] {
+  return lines.flatMap((l) =>
+    (l.vs ?? [])
+      .filter((v) => v.py != null && v.px != null)
+      .map((v) => ({
+        p: v.p,
+        a: v.a,
+        py: v.py!,
+        px: v.px!,
+        ta: v.ta,
+        lineCode: l.c,
+        lineColor: colors[l.c]?.color,
+      })),
+  );
+}
+
+function routeChipStyle(code: string, colors: RouteColorMap): { bg: string; text: string } {
+  const rc = colors[code];
+  return rc ? { bg: rc.color, text: rc.textColor } : { bg: theme.accent, text: theme.onAccent };
+}
+
+function SheetHeader({
+  title,
+  onBack,
+  backLabel,
+  onClose,
+}: {
+  title: string;
+  onBack?: () => void;
+  backLabel?: string;
+  onClose?: () => void;
+}) {
+  return (
+    <View style={styles.sheetHeader}>
+      <View style={[styles.sheetTitleRow, { paddingVertical: 8 }]}>
+        {onBack && backLabel && (
+          <Pressable onPress={onBack} hitSlop={12} style={styles.backBtn}>
+            <Text style={styles.backBtnText}>‹</Text>
+            <Text style={styles.backBtnLabel}>{backLabel}</Text>
+          </Pressable>
+        )}
+        <Text style={styles.sheetTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        {onClose && (
+          <Pressable onPress={onClose} hitSlop={16}>
+            <Text style={styles.sheetClose}>✕</Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
 }
 
 function toRelativeTime(t: string): string {
@@ -91,7 +147,6 @@ export default function OnibusScreen() {
 
   const [routeAvailable, setRouteAvailable] = useState<boolean | null>(null);
   const [selectedLine, setSelectedLine] = useState<SPNearbyLine | SPLine | null>(null);
-  const [routeStops, setRouteStops] = useState<import('@/constants/sptransTypes').SPStop[]>([]);
   const [routeShapes, setRouteShapes] = useState<{
     1: [number, number][] | null;
     2: [number, number][] | null;
@@ -144,7 +199,7 @@ export default function OnibusScreen() {
     setNearbyStops([]);
     setSpStops([]);
     setSelectedLine(null);
-    setRouteStops([]);
+
     setVehicles([]);
     setSheetMode('nearby-lines');
     if (positionInterval.current) clearInterval(positionInterval.current);
@@ -193,7 +248,7 @@ export default function OnibusScreen() {
     setSheetMode('line');
     const initialSentido: 1 | 2 = 'sl' in line ? (line as SPNearbyLine).sl : 1;
     setLineLoading(true);
-    setRouteStops([]);
+
     setVehicles([]);
     setRouteShapes({ 1: null, 2: null });
     setSentido(initialSentido);
@@ -225,7 +280,7 @@ export default function OnibusScreen() {
     };
     setRouteShapes(shapes);
     const activeShape = shapes[initialSentido];
-    setRouteAvailable(activeShape ? true : null);
+    setRouteAvailable(activeShape ? true : false);
 
     const cls: { 1: number | null; 2: number | null } = { 1: null, 2: null };
     try {
@@ -284,7 +339,6 @@ export default function OnibusScreen() {
   const switchSentido = useCallback(
     (s: 1 | 2) => {
       setSentido(s);
-      setRouteStops([]);
 
       const cl = directionCls[s];
       if (!cl) return;
@@ -334,6 +388,18 @@ export default function OnibusScreen() {
     },
     [directionCls, selectedLine],
   );
+
+  const handleLinePress = useCallback(
+    async (lineCode: string) => {
+      const results = await buscarLinhas(lineCode).catch(() => [] as SPLine[]);
+      if (results.length > 0) selectLine(results[0]);
+    },
+    [selectLine],
+  );
+
+  const handleMetroLinePress = useCallback((lineId: string) => {
+    router.push(`/line/${lineId}`);
+  }, []);
 
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -405,29 +471,11 @@ export default function OnibusScreen() {
     activeClRef.current = directionCls[sentido] ?? null;
   }, [directionCls, sentido]);
 
-  // Fetch real-time vehicle positions for all lines at the stop (no chip selected)
+  // Derive vehicle positions from arrival predictions — no extra API call needed,
+  // the prediction endpoint already includes current vehicle coordinates.
   useEffect(() => {
     if (sheetMode !== 'osm-stop' || selectedLine || activeArrivalLine) return;
-    if (osmArrivals.length === 0) {
-      setVehicles([]);
-      return;
-    }
-    let active = true;
-    Promise.all(
-      osmArrivals.map(async (l) => {
-        const pos = await getPosicaoLinha(l.cl).catch(() => null);
-        if (!pos) return [] as SPVehicle[];
-        const vs: SPVehicle[] = (pos.l ?? []).flatMap((lp: SPLinePosition) => lp.vs ?? []);
-        const src = vs.length > 0 ? vs : (pos.vs ?? []);
-        return src.map((v) => ({ ...v, lineCode: l.c, lineColor: routeColors[l.c]?.color }));
-      }),
-    ).then((batches) => {
-      if (!active) return;
-      setVehicles(batches.flat());
-    });
-    return () => {
-      active = false;
-    };
+    setVehicles(vehiclesFromArrivals(osmArrivals, routeColors));
   }, [osmArrivals, sheetMode, selectedLine, activeArrivalLine, routeColors]);
 
   // Fetch route polylines for all lines passing through the stop
@@ -510,14 +558,14 @@ export default function OnibusScreen() {
         positionInterval.current = setInterval(async () => {
           if (stopEpoch.current !== epoch) return;
           const r = await fetchWith(cp).catch(() => null);
-          if (r?.p && stopEpoch.current === epoch) setOsmArrivals(r.p.l ?? []);
+          if (r?.p && stopEpoch.current === epoch) setOsmArrivals((r.p.l ?? []).filter(Boolean));
         }, 15_000);
       };
 
       // 1. Try stop.cp directly — valid if Olho Vivo returns p != null
       const direct = await fetchWith(stop.cp).catch(() => null);
       if (direct?.p != null) {
-        setOsmArrivals(direct.p.l ?? []);
+        setOsmArrivals((direct.p.l ?? []).filter(Boolean));
         startPolling(stop.cp);
       } else {
         // 2. Search by stop name
@@ -553,7 +601,7 @@ export default function OnibusScreen() {
 
         if (resolvedCp) {
           const res = await fetchWith(resolvedCp).catch(() => null);
-          setOsmArrivals(res?.p?.l ?? []);
+          setOsmArrivals((res?.p?.l ?? []).filter(Boolean));
           startPolling(resolvedCp);
         }
       }
@@ -563,11 +611,13 @@ export default function OnibusScreen() {
     setOsmArrivalsLoading(false);
   }, []);
 
+  const onNoRoute = useCallback(() => setRouteAvailable(false), []);
+
   const dismissSheet = useCallback(() => {
     if (positionInterval.current) clearInterval(positionInterval.current);
     setSelectedLine(null);
     setActiveArrivalLine(null);
-    setRouteStops([]);
+
     setVehicles([]);
     setSpStops([]);
     setRouteShapes({ 1: null, 2: null });
@@ -577,6 +627,15 @@ export default function OnibusScreen() {
     setSheetMode('nearby-lines');
     sheetRef.current?.snapToIndex(1);
   }, []);
+
+  const nearbyStopsFiltered = useMemo(
+    () =>
+      nearbyStops.filter(
+        (stop) =>
+          !metroStations.some((ms) => haversineMeters(stop.py, stop.px, ms.lat, ms.lon) < 50),
+      ),
+    [nearbyStops, metroStations],
+  );
 
   const lineCode = selectedLine ? getDisplayCode(selectedLine) : '';
   const lineDest = selectedLine
@@ -667,16 +726,12 @@ export default function OnibusScreen() {
       <View style={styles.mapWrapper}>
         <BusMap
           userCoords={userCoords}
-          stops={[]}
-          osmStops={[]}
           spStops={
             sheetMode === 'line' || (sheetMode === 'osm-stop' && !!selectedLine)
               ? spStops
-              : nearbyStops
+              : nearbyStopsFiltered
           }
           vehicles={vehicles}
-          routeStops={showRoute ? routeStops : []}
-          routeLineCode={showRoute ? displayLineCode : null}
           routeCoords={showRoute ? (routeShapes[sentido] ?? null) : null}
           routeColor={showRoute ? (routeColors[displayLineCode]?.color ?? null) : null}
           fitRoute={sheetMode === 'line'}
@@ -686,7 +741,9 @@ export default function OnibusScreen() {
           metroLines={metroLines}
           centerOn={centerOn}
           onSpStopPress={selectStop}
-          onNoRoute={() => setRouteAvailable(false)}
+          onLinePress={handleLinePress}
+          onMetroLinePress={handleMetroLinePress}
+          onNoRoute={onNoRoute}
         />
 
         <View style={styles.btnStack}>
@@ -706,195 +763,156 @@ export default function OnibusScreen() {
         enablePanDownToClose={false}
         backgroundStyle={styles.sheetBg}
         handleIndicatorStyle={styles.sheetHandleIndicator}>
-        {(sheetMode === 'nearby-lines' || (sheetMode === 'osm-stop' && selectedStop)) && (
+        {/* ── Linhas próximas ──────────────────────────────────────────────── */}
+        {sheetMode === 'nearby-lines' && (
           <>
-            <View style={styles.sheetHeader}>
-              {sheetMode === 'osm-stop' && selectedLine ? (
-                <View style={styles.sheetTitleRow}>
-                  <Pressable
-                    onPress={() => setSheetMode('line')}
-                    hitSlop={12}
-                    style={styles.backBtn}>
-                    <Text style={styles.backBtnText}>‹</Text>
-                    <Text style={styles.backBtnLabel}>{getDisplayCode(selectedLine)}</Text>
-                  </Pressable>
-                  <Text style={[styles.sheetTitle, { paddingBottom: 8 }]} numberOfLines={1}>
-                    {selectedStop?.np || 'Parada'}
-                  </Text>
+            <SheetHeader
+              title={nearbyLoading ? 'Buscando linhas…' : `${nearbyLines.length} linhas próximas`}
+            />
+            <BottomSheetScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+              {nearbyLoading ? (
+                <View style={styles.skeletonSheet}>
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <View key={i} style={styles.skeletonSheetCard} />
+                  ))}
                 </View>
-              ) : sheetMode === 'osm-stop' ? (
-                <View style={styles.sheetTitleRow}>
-                  <Text style={[styles.sheetTitle, { paddingBottom: 8 }]} numberOfLines={1}>
-                    {selectedStop?.np || 'Parada'}
-                  </Text>
-                  <Pressable onPress={dismissSheet} hitSlop={16} style={{ paddingBottom: 8 }}>
-                    <Text style={styles.sheetClose}>✕</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <Text
-                  style={[styles.sheetTitle, { paddingHorizontal: 16, paddingBottom: 8 }]}
-                  numberOfLines={1}>
-                  {nearbyLoading ? 'Buscando linhas…' : `${nearbyLines.length} linhas próximas`}
+              ) : nearbyLines.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  Nenhuma linha encontrada próxima. Tente novamente.
+                </Text>
+              ) : null}
+              {!nearbyLoading &&
+                Object.entries(
+                  nearbyLines.reduce<Record<string, SPNearbyLine[]>>((acc, l) => {
+                    (acc[l.c] ??= []).push(l);
+                    return acc;
+                  }, {}),
+                ).map(([code, dirs]) => {
+                  const sorted = [...dirs].sort((a, b) => a.sl - b.sl);
+                  const ref = sorted[0];
+                  const cs = routeChipStyle(code, routeColors);
+                  return (
+                    <View key={code} style={styles.lineGroup}>
+                      <View style={styles.lineGroupHeader}>
+                        <View style={[styles.lineBadge, { backgroundColor: cs.bg }]}>
+                          <Text style={[styles.lineBadgeText, { color: cs.text }]}>{code}</Text>
+                        </View>
+                        <Text style={styles.lineGroupRoute} numberOfLines={1}>
+                          {ref.lt0} ↔ {ref.lt1}
+                        </Text>
+                      </View>
+                      <View style={styles.dirBtnRow}>
+                        {sorted.map((l) => (
+                          <Pressable
+                            key={l.cl}
+                            style={styles.dirPickBtn}
+                            onPress={() => selectLine(l)}>
+                            <Text style={styles.dirPickLabel}>{l.sl === 1 ? 'Ida' : 'Volta'}</Text>
+                            <Text style={styles.dirPickDest} numberOfLines={1}>
+                              → {l.sl === 1 ? l.lt0 : l.lt1}
+                            </Text>
+                            <Text style={styles.dirPickMeta}>{Math.round(l.nearestBusM)} m</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  );
+                })}
+            </BottomSheetScrollView>
+          </>
+        )}
+
+        {/* ── Parada selecionada ───────────────────────────────────────────── */}
+        {sheetMode === 'osm-stop' && selectedStop && (
+          <>
+            <SheetHeader
+              title={selectedStop.np || 'Parada'}
+              onBack={selectedLine ? () => setSheetMode('line') : undefined}
+              backLabel={selectedLine ? getDisplayCode(selectedLine) : undefined}
+              onClose={selectedLine ? undefined : dismissSheet}
+            />
+            <BottomSheetScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+              {selectedStop.ed && <Text style={styles.sheetSub}>{stripRef(selectedStop.ed)}</Text>}
+              {userCoords && (
+                <Text style={styles.sheetSub}>
+                  {Math.round(
+                    haversineMeters(
+                      userCoords.lat,
+                      userCoords.lon,
+                      selectedStop.py,
+                      selectedStop.px,
+                    ),
+                  )}{' '}
+                  m de você
                 </Text>
               )}
-            </View>
 
-            {sheetMode === 'osm-stop' && selectedStop && (
-              <BottomSheetScrollView
-                style={styles.sheetScroll}
-                showsVerticalScrollIndicator={false}>
-                {selectedStop.ed ? (
-                  <Text style={styles.sheetSub}>{stripRef(selectedStop.ed)}</Text>
-                ) : null}
-                {userCoords && (
-                  <Text style={styles.sheetSub}>
-                    {Math.round(
-                      haversineMeters(
-                        userCoords.lat,
-                        userCoords.lon,
-                        selectedStop.py,
-                        selectedStop.px,
-                      ),
-                    )}{' '}
-                    m de você
-                  </Text>
-                )}
-
-                {osmArrivalsLoading ? (
-                  <ActivityIndicator color={theme.accent} style={{ marginTop: 20 }} />
-                ) : osmArrivals.length === 0 ? (
-                  <Text style={styles.emptyText}>
-                    Parada não encontrada no sistema do Olho Vivo.
-                  </Text>
-                ) : (
-                  <>
-                    <View style={styles.chipsWrap}>
-                      {osmArrivals.map((line, i) => {
-                        const active = activeArrivalLine?.c === line.c;
-                        const rc = routeColors[line.c];
-                        const chipBg = rc ? rc.color : active ? theme.accent : theme.surfaceElev;
-                        const chipText = rc ? rc.textColor : active ? theme.onAccent : theme.accent;
-                        return (
-                          <Pressable
-                            key={line.c ?? i}
-                            onPress={() => selectArrivalChip(active ? null : line, rc?.color)}
-                            style={[
-                              styles.lineChip,
-                              {
-                                backgroundColor: chipBg,
-                                borderColor: chipBg,
-                                opacity: active ? 1 : 0.7,
-                              },
-                            ]}>
-                            <Text style={[styles.lineChipText, { color: chipText }]}>{line.c}</Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-
-                    <Text style={styles.sectionLabel}>PRÓXIMAS CHEGADAS</Text>
-
-                    {(activeArrivalLine
-                      ? osmArrivals.filter((l) => l.c === activeArrivalLine.c)
-                      : osmArrivals
-                    )
-                      .flatMap((line) => (line.vs ?? []).map((v) => ({ v, line })))
-                      .sort((a, b) => a.v.t.localeCompare(b.v.t))
-                      .map(({ v, line }, i) => {
-                        const dest = line.sl === 1 ? line.lt0 : line.lt1;
-                        const rel = toRelativeTime(v.t);
-                        return (
-                          <View key={`${line.c}-${v.p}-${i}`} style={styles.gmRow}>
-                            <View style={styles.gmLeft}>
-                              <View
-                                style={[
-                                  styles.gmBadge,
-                                  routeColors[line.c] && {
-                                    backgroundColor: routeColors[line.c].color,
-                                  },
-                                ]}>
-                                <Text
-                                  style={[
-                                    styles.gmBadgeText,
-                                    routeColors[line.c] && { color: routeColors[line.c].textColor },
-                                  ]}>
-                                  {line.c}
-                                </Text>
-                              </View>
-                              <Text style={styles.gmDest} numberOfLines={1}>
-                                {dest}
-                              </Text>
-                            </View>
-                            <View style={styles.gmRight}>
-                              {v.a && <Text style={styles.gmA11y}>♿</Text>}
-                              <Text style={[styles.gmTime, rel === 'Agora' && styles.gmTimeNow]}>
-                                {rel}
-                              </Text>
-                            </View>
-                          </View>
-                        );
-                      })}
-                  </>
-                )}
-              </BottomSheetScrollView>
-            )}
-
-            {sheetMode === 'nearby-lines' && (
-              <BottomSheetScrollView
-                style={styles.sheetScroll}
-                showsVerticalScrollIndicator={false}>
-                {nearbyLoading ? (
-                  <View style={styles.skeletonSheet}>
-                    {Array.from({ length: 4 }).map((_, i) => (
-                      <View key={i} style={styles.skeletonSheetCard} />
-                    ))}
+              {osmArrivalsLoading ? (
+                <ActivityIndicator color={theme.accent} style={{ marginTop: 20 }} />
+              ) : osmArrivals.length === 0 ? (
+                <Text style={styles.emptyText}>Parada não encontrada no sistema do Olho Vivo.</Text>
+              ) : (
+                <>
+                  <View style={styles.chipsWrap}>
+                    {osmArrivals.map((line, i) => {
+                      const active = activeArrivalLine?.c === line.c;
+                      const rc = routeColors[line.c];
+                      const chipBg = rc?.color ?? (active ? theme.accent : theme.surfaceElev);
+                      const chipText = rc?.textColor ?? (active ? theme.onAccent : theme.accent);
+                      return (
+                        <Pressable
+                          key={line.c ?? i}
+                          onPress={() => selectArrivalChip(active ? null : line, rc?.color)}
+                          style={[
+                            styles.lineChip,
+                            {
+                              backgroundColor: chipBg,
+                              borderColor: chipBg,
+                              opacity: active ? 1 : 0.7,
+                            },
+                          ]}>
+                          <Text style={[styles.lineChipText, { color: chipText }]}>{line.c}</Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
-                ) : nearbyLines.length === 0 ? (
-                  <Text style={styles.emptyText}>
-                    Nenhuma linha encontrada próxima. Tente novamente.
-                  </Text>
-                ) : null}
-                {!nearbyLoading &&
-                  Object.entries(
-                    nearbyLines.reduce<Record<string, SPNearbyLine[]>>((acc, l) => {
-                      (acc[l.c] ??= []).push(l);
-                      return acc;
-                    }, {}),
-                  ).map(([code, dirs]) => {
-                    const sorted = [...dirs].sort((a, b) => a.sl - b.sl);
-                    const ref = sorted[0];
-                    return (
-                      <View key={code} style={styles.lineGroup}>
-                        <View style={styles.lineGroupHeader}>
-                          <View style={styles.lineBadge}>
-                            <Text style={styles.lineBadgeText}>{code}</Text>
+
+                  <Text style={styles.sectionLabel}>PRÓXIMAS CHEGADAS</Text>
+
+                  {(activeArrivalLine
+                    ? osmArrivals.filter((l) => l.c === activeArrivalLine.c)
+                    : osmArrivals
+                  )
+                    .flatMap((line) => (line.vs ?? []).map((v) => ({ v, line })))
+                    .sort((a, b) => a.v.t.localeCompare(b.v.t))
+                    .map(({ v, line }, i) => {
+                      const dest = line.sl === 1 ? line.lt0 : line.lt1;
+                      const rel = toRelativeTime(v.t);
+                      const gcs = routeChipStyle(line.c, routeColors);
+                      return (
+                        <View key={`${line.c}-${v.p}-${i}`} style={styles.gmRow}>
+                          <View style={styles.gmLeft}>
+                            <View style={[styles.gmBadge, { backgroundColor: gcs.bg }]}>
+                              <Text style={[styles.gmBadgeText, { color: gcs.text }]}>
+                                {line.c}
+                              </Text>
+                            </View>
+                            <Text style={styles.gmDest} numberOfLines={1}>
+                              {dest}
+                            </Text>
                           </View>
-                          <Text style={styles.lineGroupRoute} numberOfLines={1}>
-                            {ref.lt0} ↔ {ref.lt1}
-                          </Text>
+                          <View style={styles.gmRight}>
+                            {v.a && <Text style={styles.gmA11y}>♿</Text>}
+                            <Text style={[styles.gmTime, rel === 'Agora' && styles.gmTimeNow]}>
+                              {rel}
+                            </Text>
+                          </View>
                         </View>
-                        <View style={styles.dirBtnRow}>
-                          {sorted.map((l) => (
-                            <Pressable
-                              key={l.cl}
-                              style={styles.dirPickBtn}
-                              onPress={() => selectLine(l)}>
-                              <Text style={styles.dirPickLabel}>
-                                {l.sl === 1 ? 'Ida' : 'Volta'}
-                              </Text>
-                              <Text style={styles.dirPickDest} numberOfLines={1}>
-                                → {l.sl === 1 ? l.lt0 : l.lt1}
-                              </Text>
-                              <Text style={styles.dirPickMeta}>{Math.round(l.nearestBusM)} m</Text>
-                            </Pressable>
-                          ))}
-                        </View>
-                      </View>
-                    );
-                  })}
-              </BottomSheetScrollView>
-            )}
+                      );
+                    })}
+                </>
+              )}
+            </BottomSheetScrollView>
           </>
         )}
       </BottomSheet>

@@ -70,13 +70,15 @@ interface SPLineRaw {
   ts: string;
 }
 
+const linhasCache = new Map<string, SPLine[]>();
+
 export async function buscarLinhas(termos: string): Promise<SPLine[]> {
+  const key = termos.trim().toLowerCase();
+  if (linhasCache.has(key)) return linhasCache.get(key)!;
   const raw = await get<SPLineRaw[]>('/Linha/Buscar', { termosBusca: termos });
-  return (raw ?? []).map((l) => ({
-    ...l,
-    lt0: l.tp,
-    lt1: l.ts,
-  }));
+  const result = (raw ?? []).map((l) => ({ ...l, lt0: l.tp, lt1: l.ts }));
+  linhasCache.set(key, result);
+  return result;
 }
 
 // ── Paradas ─────────────────────────────────────────────────────────────────
@@ -85,8 +87,13 @@ export async function buscarParadas(termos: string): Promise<SPStop[]> {
   return get<SPStop[]>('/Parada/Buscar', { termosBusca: termos });
 }
 
+const paradasPorLinhaCache = new Map<number, SPStop[]>();
+
 export async function buscarParadasPorLinha(cl: number): Promise<SPStop[]> {
-  return get<SPStop[]>('/Parada/BuscarParadasPorLinha', { codigoLinha: cl });
+  if (paradasPorLinhaCache.has(cl)) return paradasPorLinhaCache.get(cl)!;
+  const result = await get<SPStop[]>('/Parada/BuscarParadasPorLinha', { codigoLinha: cl });
+  paradasPorLinhaCache.set(cl, result);
+  return result;
 }
 
 interface GeoServerFeature {
@@ -106,10 +113,15 @@ function geoToLatLon(pairs: number[][]): [number, number][] {
   return pairs.map(([lon, lat]) => [lat, lon]);
 }
 
+// null cached = confirmed no route for this line/direction
+const rotaCache = new Map<string, [number, number][] | null>();
+
 export async function buscarRotaLinha(
   lineCode: string,
   sentido: 1 | 2 = 1,
 ): Promise<[number, number][] | null> {
+  const cacheKey = `${lineCode}|${sentido}`;
+  if (rotaCache.has(cacheKey)) return rotaCache.get(cacheKey)!;
   const filter = `LINHA LIKE '${lineCode}%' AND SENTIDO = ${sentido}`;
   const url =
     GEOSERVER +
@@ -124,12 +136,18 @@ export async function buscarRotaLinha(
   const data = (await res.json()) as { features?: GeoServerFeature[] };
 
   const features: GeoServerFeature[] = data.features ?? [];
-  if (!features.length) return null;
+  if (!features.length) {
+    rotaCache.set(cacheKey, null);
+    return null;
+  }
 
   const feature = features.find((f) => f.properties?.['LINHA'] === lineCode) ?? features[0];
 
   const geom = feature?.geometry;
-  if (!geom) return null;
+  if (!geom) {
+    rotaCache.set(cacheKey, null);
+    return null;
+  }
 
   const coords: [number, number][] = [];
   if (geom.type === 'MultiLineString') {
@@ -138,7 +156,9 @@ export async function buscarRotaLinha(
     coords.push(...geoToLatLon(geom.coordinates as number[][]));
   }
 
-  return coords.length >= 2 ? coords : null;
+  const result = coords.length >= 2 ? coords : null;
+  rotaCache.set(cacheKey, result);
+  return result;
 }
 
 // ── Posição ──────────────────────────────────────────────────────────────────

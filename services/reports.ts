@@ -8,7 +8,6 @@ export interface UserReport {
   category: ReportCategory;
   station: string | null;
   description: string | null;
-  image_b64: string | null;
   net_votes: number;
   promoted: number;
   created_at: number;
@@ -39,7 +38,6 @@ export async function createReport(params: {
   category: ReportCategory;
   station?: string;
   description?: string;
-  imageB64?: string;
 }): Promise<UserReport> {
   const res = await fetch(`${BACKEND_URL}/api/reports`, {
     method: 'POST',
@@ -50,7 +48,6 @@ export async function createReport(params: {
       category: params.category,
       station: params.station ?? null,
       description: params.description ?? null,
-      imageB64: params.imageB64 ?? null,
     }),
   });
   const body = (await res.json()) as { report?: UserReport; error?: string };
