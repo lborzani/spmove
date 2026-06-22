@@ -267,29 +267,42 @@ export function UserReports({ lineNum, stations = [] }: Props) {
     };
   }, [lineNum]);
 
+  const sortReports = useCallback(
+    (list: UserReport[]) =>
+      [...list].sort(
+        (a, b) =>
+          b.promoted - a.promoted || b.net_votes - a.net_votes || b.created_at - a.created_at,
+      ),
+    [],
+  );
+
   const handleVote = useCallback(
     async (id: number, vote: 1 | -1) => {
       if (!deviceId) return;
       try {
         const { netVotes, promoted } = await voteReport(id, vote, deviceId);
         setReports((prev) =>
-          prev.map((r) => {
-            if (r.id !== id) return r;
-            const prevVote = r.my_vote;
-            const newMyVote = prevVote === vote ? null : vote;
-            return { ...r, net_votes: netVotes, promoted: promoted ? 1 : 0, my_vote: newMyVote };
-          }),
+          sortReports(
+            prev.map((r) => {
+              if (r.id !== id) return r;
+              const newMyVote = r.my_vote === vote ? null : vote;
+              return { ...r, net_votes: netVotes, promoted: promoted ? 1 : 0, my_vote: newMyVote };
+            }),
+          ),
         );
       } catch {
         // ignore
       }
     },
-    [deviceId],
+    [deviceId, sortReports],
   );
 
-  const handleCreated = useCallback((report: UserReport) => {
-    setReports((prev) => [{ ...report, my_vote: null }, ...prev]);
-  }, []);
+  const handleCreated = useCallback(
+    (report: UserReport) => {
+      setReports((prev) => sortReports([...prev, { ...report, my_vote: null }]));
+    },
+    [sortReports],
+  );
 
   return (
     <View style={styles.section}>

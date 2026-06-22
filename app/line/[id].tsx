@@ -4,10 +4,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery } from '@tanstack/react-query';
-import { theme, STATUS_META } from '@/constants/theme';
+import { theme, STATUS_META, textStyles } from '@/constants/theme';
 import { STATIONS_FALLBACK, STATION_TRANSFERS } from '@/constants/data';
 import { fetchStatus, fetchOcorrencias, LINE_META, todayISO, daysAgoISO } from '@/services/api';
 import { StatusDot } from '@/components/StatusDot';
+import { LineCodeBadge } from '@/components/LineBadge';
 import { IcoArrowLeft, IcoHeart } from '@/components/Icons';
 import { UserReports } from '@/components/UserReports';
 import { getFavorites, toggleFavorite } from '@/constants/favPrefs';
@@ -167,14 +168,12 @@ export default function LineDetailScreen() {
                       {transfers.length > 0 && (
                         <View style={styles.transferBadges}>
                           {transfers.map((n) => (
-                            <View
+                            <LineCodeBadge
                               key={n}
-                              style={[
-                                styles.transferBadge,
-                                { backgroundColor: LINE_META[n]?.color ?? '#888' },
-                              ]}>
-                              <Text style={styles.transferBadgeText}>{n}</Text>
-                            </View>
+                              num={n}
+                              color={LINE_META[n]?.color ?? '#888'}
+                              size={18}
+                            />
                           ))}
                         </View>
                       )}
@@ -316,14 +315,7 @@ const styles = StyleSheet.create({
   statusNote: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 1 },
 
   section: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 6 },
-  sectionTitle: {
-    color: theme.textDim,
-    fontSize: 11,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    fontWeight: '600',
-    marginBottom: 12,
-  },
+  sectionTitle: { ...textStyles.eyebrow, marginBottom: 12 },
   noHistText: { color: theme.textDim, fontSize: 13 },
 
   stationList: { paddingLeft: 18, position: 'relative' },
@@ -345,14 +337,6 @@ const styles = StyleSheet.create({
   },
   stationName: { color: theme.text, fontSize: 14, fontWeight: '500' },
   transferBadges: { flexDirection: 'row', gap: 4, marginLeft: 8 },
-  transferBadge: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  transferBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
 
   histList: { gap: 8 },
   histCard: {

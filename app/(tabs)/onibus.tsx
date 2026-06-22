@@ -18,7 +18,7 @@ import type {
   SPLine,
   SPNearbyLine,
   SPVehicle,
-  SPLinePosition,
+  SPPositionResponse,
   SPStop,
   SPArrivalLine,
   MetroStation,
@@ -61,6 +61,13 @@ function getDisplayCode(line: SPNearbyLine | SPLine): string {
 function stripRef(ed: string): string {
   const idx = ed.search(/\s+Ref\./i);
   return idx > 0 ? ed.slice(0, idx).trim() : ed;
+}
+
+// Posicao/Linha returns vehicles either nested under `l[]` (grouped by line) or
+// flat under `vs[]`. Normalize to a single list.
+function parseVehicles(pos: SPPositionResponse): SPVehicle[] {
+  const nested = (pos.l ?? []).flatMap((l) => l.vs ?? []);
+  return nested.length > 0 ? nested : (pos.vs ?? []);
 }
 
 function vehiclesFromArrivals(lines: SPArrivalLine[], colors: RouteColorMap): SPVehicle[] {
@@ -238,103 +245,114 @@ export default function OnibusScreen() {
     if (userCoords) setCenterOn({ ...userCoords, zoom: 16 });
   }, [userCoords]);
 
-  const selectLine = useCallback(async (line: SPNearbyLine | SPLine) => {
-    const epoch = ++selectEpoch.current;
-    const displayCode = getDisplayCode(line);
-    Keyboard.dismiss();
-    setSelectedLine(line);
-    setLineResults([]);
-    setSearchQuery('');
-    setSheetMode('line');
-    const initialSentido: 1 | 2 = 'sl' in line ? (line as SPNearbyLine).sl : 1;
-    setLineLoading(true);
-
-    setVehicles([]);
-    setRouteShapes({ 1: null, 2: null });
-    setSentido(initialSentido);
-    setDirectionCls({ 1: null, 2: null });
+  // Polls live vehicle positions for a line class every 10s. Replaces any prior
+  // interval. Optional mapFn decorates each vehicle (e.g. line code/color).
+  const startVehiclePolling = useCallback((cl: number, mapFn?: (v: SPVehicle) => SPVehicle) => {
     if (positionInterval.current) clearInterval(positionInterval.current);
-
-    const cl = line.cl;
-
-    if ('vs' in line && (line as SPNearbyLine).vs.length > 0) {
-      setVehicles((line as SPNearbyLine).vs);
-    }
-
-    const localShape1 = getGtfsShape(displayCode + '-1') ?? getGtfsShape(displayCode);
-    const localShape2 = getGtfsShape(displayCode + '-2');
-
-    const [shape1, shape2] = await Promise.all([
-      localShape1
-        ? Promise.resolve(localShape1)
-        : buscarRotaLinha(displayCode, 1).catch(() => null),
-      localShape2
-        ? Promise.resolve(localShape2)
-        : buscarRotaLinha(displayCode, 2).catch(() => null),
-    ]);
-    if (epoch !== selectEpoch.current) return;
-
-    const shapes = { 1: shape1, 2: shape2 } as {
-      1: [number, number][] | null;
-      2: [number, number][] | null;
-    };
-    setRouteShapes(shapes);
-    const activeShape = shapes[initialSentido];
-    setRouteAvailable(activeShape ? true : false);
-
-    const cls: { 1: number | null; 2: number | null } = { 1: null, 2: null };
-    try {
-      const dirs = await buscarLinhas(displayCode);
-      if (epoch !== selectEpoch.current) return;
-      for (const d of dirs as SPLine[]) {
-        if (d.sl === 1 || d.sl === 2) cls[d.sl] = d.cl;
-      }
-    } catch {
-      /* fallback */
-    }
-    if (!cls[initialSentido]) cls[initialSentido] = cl;
-    setDirectionCls(cls);
-
-    const activeCl = cls[initialSentido] ?? cl;
-
-    getGtfsStops(displayCode, initialSentido)
-      .then((gtfs) => {
-        if (epoch !== selectEpoch.current) return;
-        if (gtfs && gtfs.length > 0) setSpStops(gtfs);
-        else
-          buscarParadasPorLinha(activeCl)
-            .then(setSpStops)
-            .catch(() => {});
-      })
-      .catch(() => {
-        if (epoch !== selectEpoch.current) return;
-        buscarParadasPorLinha(activeCl)
-          .then(setSpStops)
-          .catch(() => {});
-      });
-
-    try {
-      const pos = await getPosicaoLinha(activeCl);
-      if (epoch !== selectEpoch.current) return;
-      const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
-      setVehicles(vs.length > 0 ? vs : (pos.vs ?? []));
-    } catch {
-      /* keep existing */
-    }
-
-    if (epoch !== selectEpoch.current) return;
-    setLineLoading(false);
-
     positionInterval.current = setInterval(async () => {
       try {
-        const pos = await getPosicaoLinha(activeCl);
-        const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
-        setVehicles(vs.length > 0 ? vs : (pos.vs ?? []));
+        const pos = await getPosicaoLinha(cl);
+        const list = parseVehicles(pos);
+        setVehicles(mapFn ? list.map(mapFn) : list);
       } catch {
         /* skip */
       }
     }, 10_000);
   }, []);
+
+  const selectLine = useCallback(
+    async (line: SPNearbyLine | SPLine) => {
+      const epoch = ++selectEpoch.current;
+      const displayCode = getDisplayCode(line);
+      Keyboard.dismiss();
+      setSelectedLine(line);
+      setLineResults([]);
+      setSearchQuery('');
+      setSheetMode('line');
+      const initialSentido: 1 | 2 = 'sl' in line ? (line as SPNearbyLine).sl : 1;
+      setLineLoading(true);
+
+      setVehicles([]);
+      setRouteShapes({ 1: null, 2: null });
+      setSentido(initialSentido);
+      setDirectionCls({ 1: null, 2: null });
+      if (positionInterval.current) clearInterval(positionInterval.current);
+
+      const cl = line.cl;
+
+      if ('vs' in line && (line as SPNearbyLine).vs.length > 0) {
+        setVehicles((line as SPNearbyLine).vs);
+      }
+
+      const localShape1 = getGtfsShape(displayCode + '-1') ?? getGtfsShape(displayCode);
+      const localShape2 = getGtfsShape(displayCode + '-2');
+
+      const [shape1, shape2] = await Promise.all([
+        localShape1
+          ? Promise.resolve(localShape1)
+          : buscarRotaLinha(displayCode, 1).catch(() => null),
+        localShape2
+          ? Promise.resolve(localShape2)
+          : buscarRotaLinha(displayCode, 2).catch(() => null),
+      ]);
+      if (epoch !== selectEpoch.current) return;
+
+      const shapes = { 1: shape1, 2: shape2 } as {
+        1: [number, number][] | null;
+        2: [number, number][] | null;
+      };
+      setRouteShapes(shapes);
+      const activeShape = shapes[initialSentido];
+      setRouteAvailable(activeShape ? true : false);
+
+      const cls: { 1: number | null; 2: number | null } = { 1: null, 2: null };
+      try {
+        const dirs = await buscarLinhas(displayCode);
+        if (epoch !== selectEpoch.current) return;
+        for (const d of dirs as SPLine[]) {
+          if (d.sl === 1 || d.sl === 2) cls[d.sl] = d.cl;
+        }
+      } catch {
+        /* fallback */
+      }
+      if (!cls[initialSentido]) cls[initialSentido] = cl;
+      setDirectionCls(cls);
+
+      const activeCl = cls[initialSentido] ?? cl;
+
+      const setStopsGuarded = (s: SPStop[]) => {
+        if (epoch === selectEpoch.current) setSpStops(s);
+      };
+      getGtfsStops(displayCode, initialSentido)
+        .then((gtfs) => {
+          if (epoch !== selectEpoch.current) return;
+          if (gtfs && gtfs.length > 0) setSpStops(gtfs);
+          else
+            buscarParadasPorLinha(activeCl)
+              .then(setStopsGuarded)
+              .catch(() => {});
+        })
+        .catch(() => {
+          buscarParadasPorLinha(activeCl)
+            .then(setStopsGuarded)
+            .catch(() => {});
+        });
+
+      try {
+        const pos = await getPosicaoLinha(activeCl);
+        if (epoch !== selectEpoch.current) return;
+        setVehicles(parseVehicles(pos));
+      } catch {
+        /* keep existing */
+      }
+
+      if (epoch !== selectEpoch.current) return;
+      setLineLoading(false);
+
+      startVehiclePolling(activeCl);
+    },
+    [startVehiclePolling],
+  );
 
   const switchSentido = useCallback(
     (s: 1 | 2) => {
@@ -345,6 +363,9 @@ export default function OnibusScreen() {
 
       const epoch = ++switchEpoch.current;
 
+      const setStopsGuarded = (st: SPStop[]) => {
+        if (epoch === switchEpoch.current) setSpStops(st);
+      };
       const code = selectedLine ? getDisplayCode(selectedLine) : '';
       if (code) {
         getGtfsStops(code, s)
@@ -353,40 +374,30 @@ export default function OnibusScreen() {
             if (gtfs && gtfs.length > 0) setSpStops(gtfs);
             else
               buscarParadasPorLinha(cl)
-                .then(setSpStops)
+                .then(setStopsGuarded)
                 .catch(() => {});
           })
           .catch(() =>
             buscarParadasPorLinha(cl)
-              .then(setSpStops)
+              .then(setStopsGuarded)
               .catch(() => {}),
           );
       } else {
         buscarParadasPorLinha(cl)
-          .then(setSpStops)
+          .then(setStopsGuarded)
           .catch(() => {});
       }
 
       getPosicaoLinha(cl)
         .then((pos) => {
           if (epoch !== switchEpoch.current) return;
-          const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
-          setVehicles(vs.length > 0 ? vs : (pos.vs ?? []));
+          setVehicles(parseVehicles(pos));
         })
         .catch(() => {});
 
-      if (positionInterval.current) clearInterval(positionInterval.current);
-      positionInterval.current = setInterval(async () => {
-        try {
-          const pos = await getPosicaoLinha(cl);
-          const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
-          setVehicles(vs.length > 0 ? vs : (pos.vs ?? []));
-        } catch {
-          /* skip */
-        }
-      }, 10_000);
+      startVehiclePolling(cl);
     },
-    [directionCls, selectedLine],
+    [directionCls, selectedLine, startVehiclePolling],
   );
 
   const handleLinePress = useCallback(
@@ -512,13 +523,7 @@ export default function OnibusScreen() {
 
     try {
       const pos = await getPosicaoLinha(line.cl);
-      const vs: SPVehicle[] = (pos.l ?? []).flatMap((l: SPLinePosition) => l.vs ?? []);
-      const result = (vs.length > 0 ? vs : (pos.vs ?? [])).map((v) => ({
-        ...v,
-        lineCode: line.c,
-        lineColor,
-      }));
-      setVehicles(result);
+      setVehicles(parseVehicles(pos).map((v) => ({ ...v, lineCode: line.c, lineColor })));
     } catch {
       /* keep arrivals-derived vehicles */
     }
@@ -547,11 +552,11 @@ export default function OnibusScreen() {
     setOsmArrivals([]);
     if (positionInterval.current) clearInterval(positionInterval.current);
     try {
-      const cl = activeClRef.current;
-
+      // Read the active line class fresh on each call so a direction switch
+      // mid-poll filters arrivals to the currently-selected line.
       const fetchWith = async (cp: number) => {
-        const r = cl ? await getPrevisaoLinhaNaParada(cp, cl) : await getPrevisaoParada(cp);
-        return r;
+        const cl = activeClRef.current;
+        return cl ? getPrevisaoLinhaNaParada(cp, cl) : getPrevisaoParada(cp);
       };
 
       const startPolling = (cp: number) => {
@@ -608,7 +613,7 @@ export default function OnibusScreen() {
     } catch {
       /* no arrivals */
     }
-    setOsmArrivalsLoading(false);
+    if (stopEpoch.current === epoch) setOsmArrivalsLoading(false);
   }, []);
 
   const onNoRoute = useCallback(() => setRouteAvailable(false), []);
@@ -621,12 +626,23 @@ export default function OnibusScreen() {
     setVehicles([]);
     setSpStops([]);
     setRouteShapes({ 1: null, 2: null });
+    setDirectionCls({ 1: null, 2: null });
     setSentido(1);
     setSelectedStop(null);
     setOsmArrivals([]);
     setSheetMode('nearby-lines');
     sheetRef.current?.snapToIndex(1);
   }, []);
+
+  const handleMapPress = useCallback(() => {
+    if (sheetMode === 'osm-stop') {
+      if (selectedLine) {
+        setSheetMode('line');
+      } else {
+        dismissSheet();
+      }
+    }
+  }, [sheetMode, selectedLine, dismissSheet]);
 
   const nearbyStopsFiltered = useMemo(
     () =>
@@ -688,12 +704,17 @@ export default function OnibusScreen() {
                     (acc[key] ??= []).push(l);
                     return acc;
                   }, {}),
-                ).map((group) => {
+                ).map((group, i, arr) => {
                   const sorted = [...group].sort((a, b) => a.sl - b.sl);
                   const ref = sorted[0];
                   const code = `${ref.lt}-${ref.tl}`;
                   return (
-                    <View key={code} style={styles.dropdownGroup}>
+                    <View
+                      key={code}
+                      style={[
+                        styles.dropdownGroup,
+                        i === arr.length - 1 && styles.dropdownGroupLast,
+                      ]}>
                       <View style={styles.dropdownGroupHeader}>
                         <Text style={styles.dropdownCode}>{code}</Text>
                         <Text style={styles.dropdownName} numberOfLines={1}>
@@ -744,6 +765,7 @@ export default function OnibusScreen() {
           onLinePress={handleLinePress}
           onMetroLinePress={handleMetroLinePress}
           onNoRoute={onNoRoute}
+          onMapPress={handleMapPress}
         />
 
         <View style={styles.btnStack}>
@@ -861,7 +883,7 @@ export default function OnibusScreen() {
                       const chipText = rc?.textColor ?? (active ? theme.onAccent : theme.accent);
                       return (
                         <Pressable
-                          key={line.c ?? i}
+                          key={`${line.c ?? i}-${line.sl}`}
                           onPress={() => selectArrivalChip(active ? null : line, rc?.color)}
                           style={[
                             styles.lineChip,
@@ -1038,6 +1060,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
+  },
+  dropdownGroupLast: {
+    borderBottomWidth: 0,
   },
   dropdownGroupHeader: {
     flexDirection: 'row',

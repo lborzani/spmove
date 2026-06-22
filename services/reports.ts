@@ -52,7 +52,8 @@ export async function createReport(params: {
   });
   const body = (await res.json()) as { report?: UserReport; error?: string };
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-  return body.report!;
+  if (!body.report) throw new Error('Resposta inválida do servidor');
+  return body.report;
 }
 
 export async function voteReport(

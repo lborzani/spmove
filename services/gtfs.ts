@@ -38,21 +38,17 @@ export function getGtfsShape(lineCode: string): [number, number][] | null {
   return null;
 }
 
-// Fetches URL once per session — returns `empty` on any failure.
+// Fetches URL once per session — on error, lets next call retry instead of caching failure.
 function memoFetch<T>(url: string, pick: (data: unknown) => T, empty: T): () => Promise<T> {
   let cache: T | null = null;
   return async () => {
     if (cache !== null) return cache;
     try {
       const res = await fetch(url);
-      if (!res.ok) {
-        cache = empty;
-        return empty;
-      }
+      if (!res.ok) return empty;
       cache = pick(await res.json()) ?? empty;
       return cache;
     } catch {
-      cache = empty;
       return empty;
     }
   };

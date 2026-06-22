@@ -10,12 +10,14 @@ const BASE = 'https://api.olhovivo.sptrans.com.br/v2.1';
 const TOKEN = process.env.EXPO_PUBLIC_SPTRANS_TOKEN ?? '';
 
 let sessionCookie: string | null = null;
+let authPromise: Promise<void> | null = null;
 
 // fetch() on Android (OkHttp) strips set-cookie — XHR exposes the full header string.
 async function authenticate(): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${BASE}/Login/Autenticar?token=${TOKEN}`);
+    xhr.timeout = 10_000;
     xhr.onreadystatechange = function () {
       if (xhr.readyState !== 4) return;
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -27,12 +29,29 @@ async function authenticate(): Promise<void> {
       }
     };
     xhr.onerror = () => reject(new Error('SPTrans auth network error'));
+    xhr.ontimeout = () => reject(new Error('SPTrans auth timeout'));
     xhr.send();
   });
 }
 
+// Deduplicates concurrent auth calls — all callers await the same in-flight promise.
+async function ensureAuth(): Promise<void> {
+  if (sessionCookie) return;
+  if (!authPromise)
+    authPromise = authenticate().finally(() => {
+      authPromise = null;
+    });
+  await authPromise;
+}
+
+function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 async function get<T>(path: string, params?: Record<string, string | number>): Promise<T> {
-  if (!sessionCookie) await authenticate();
+  await ensureAuth();
 
   const qs = params
     ? '?' +
@@ -42,7 +61,7 @@ async function get<T>(path: string, params?: Record<string, string | number>): P
     : '';
 
   const doFetch = () =>
-    fetch(`${BASE}${path}${qs}`, {
+    fetchWithTimeout(`${BASE}${path}${qs}`, {
       headers: sessionCookie ? { Cookie: sessionCookie } : {},
     });
 
@@ -50,7 +69,7 @@ async function get<T>(path: string, params?: Record<string, string | number>): P
 
   if (res.status === 401 || res.status === 403) {
     sessionCookie = null;
-    await authenticate();
+    await ensureAuth();
     res = await doFetch();
   }
 

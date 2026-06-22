@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { theme } from '@/constants/theme';
+import { theme, textStyles } from '@/constants/theme';
 import { IcoArrowLeft } from '@/components/Icons';
 import { getGlobalEnabled, setGlobalEnabled } from '@/constants/notifPrefs';
 import { requestNotificationPermissions } from '@/services/notifications';
@@ -158,14 +158,7 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 40 },
 
   section: { paddingHorizontal: 18, paddingTop: 22 },
-  sectionTitle: {
-    color: theme.textDim,
-    fontSize: 11,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    fontWeight: '600',
-    marginBottom: 10,
-  },
+  sectionTitle: { ...textStyles.eyebrow, marginBottom: 10 },
 
   row: {
     flexDirection: 'row',

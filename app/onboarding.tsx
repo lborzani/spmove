@@ -1,15 +1,10 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  Dimensions,
-} from 'react-native';
+import { View, Text, Pressable, StyleSheet, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '@/constants/theme';
+import { ONBOARDED_KEY } from '@/constants/storage';
 import { IcoLogo, IcoArrow } from '@/components/Icons';
 
 const { width: W } = Dimensions.get('window');
@@ -37,8 +32,6 @@ const SLIDES = [
     accent: theme.accent3,
   },
 ];
-
-const ONBOARDED_KEY = 'linha_onboarded';
 
 export default function OnboardingScreen() {
   const [step, setStep] = useState(0);
@@ -107,8 +100,7 @@ export default function OnboardingScreen() {
           style={({ pressed }) => [
             styles.advanceBtn,
             { backgroundColor: s.accent, opacity: pressed ? 0.8 : 1 },
-          ]}
-        >
+          ]}>
           <Text style={[styles.advanceBtnText, { color: theme.onAccent }]}>
             {isLast ? 'ENTRAR' : 'AVANÇAR'}
           </Text>

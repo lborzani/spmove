@@ -7,9 +7,16 @@ import {
   GeoJSONSource,
   RasterSource,
   Layer,
+  Images,
   type CameraRef,
 } from '@maplibre/maplibre-react-native';
 import { LocateFixed } from 'lucide-react-native';
+import Svg, {
+  Circle as SvgCircle,
+  Rect as SvgRect,
+  Path as SvgPath,
+  G as SvgG,
+} from 'react-native-svg';
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import type { SPStop, SPVehicle, MetroStation, MetroLineData } from '@/constants/sptransTypes';
 
@@ -29,6 +36,7 @@ interface BusMapProps {
   onLinePress?: (lineCode: string) => void;
   onMetroLinePress?: (lineId: string) => void;
   onNoRoute?: () => void;
+  onMapPress?: () => void;
 }
 
 // Blank style avoids HTTP/2 stream-reset issues on Android with the CARTO vector style endpoint.
@@ -38,6 +46,14 @@ const INITIAL_CENTER: [number, number] = [-46.6333, -23.5505];
 const INITIAL_ZOOM = 13;
 const SHOW_STOPS_ZOOM = 15;
 const SHOW_METRO_ZOOM = 13;
+const BUS_ICON_SIZE = 56;
+// toDataURL captures at 1x (BUS_ICON_SIZE px); icon-size is a direct px→dp multiplier
+const TARGET_STOP_DP = 10;
+const STOP_ICON_SIZE = TARGET_STOP_DP / BUS_ICON_SIZE;
+const STOP_ICON_SIZE_SELECTED = (TARGET_STOP_DP * 1.4) / BUS_ICON_SIZE;
+// Derived from calibrated STOP_ICON_SIZE — same device-capture factor applies automatically
+const METRO_ICON_SIZE = STOP_ICON_SIZE * 0.7; // matches vehicle-icon ratio inside its circle
+const CPTM_ICON_SIZE = STOP_ICON_SIZE; // same as bus stop; adjust if needed
 
 // Our route coords are [lat, lon]; GeoJSON/MapLibre needs [lon, lat]
 function toGeoCoords(pairs: [number, number][]): number[][] {
@@ -84,6 +100,184 @@ function UserIcon() {
   );
 }
 
+function BusStopSvg({
+  bg,
+  fg,
+  svgRef,
+}: {
+  bg: string;
+  fg: string;
+  svgRef: React.RefObject<Svg | null>;
+}) {
+  // Lucide BusFront paths — 24×24 space, scaled into 56×56 viewBox
+  return (
+    <Svg ref={svgRef} width={BUS_ICON_SIZE} height={BUS_ICON_SIZE} viewBox="0 0 56 56">
+      <SvgCircle cx="28" cy="28" r="26" fill={bg} stroke={fg} strokeWidth="2" />
+      <SvgG transform="translate(8, 7) scale(1.7)">
+        <SvgPath d="M4 6 2 7" stroke={fg} strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="M10 6h4" stroke={fg} strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="m22 7-2-1" stroke={fg} strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgRect
+          width="16"
+          height="16"
+          x="4"
+          y="3"
+          rx="2"
+          stroke={fg}
+          strokeWidth="2"
+          fill="none"
+        />
+        <SvgPath d="M4 11h16" stroke={fg} strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="M8 15h.01" stroke={fg} strokeWidth="3" strokeLinecap="round" fill="none" />
+        <SvgPath d="M16 15h.01" stroke={fg} strokeWidth="3" strokeLinecap="round" fill="none" />
+        <SvgPath d="M6 19v2" stroke={fg} strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="M18 21v-2" stroke={fg} strokeWidth="2" strokeLinecap="round" fill="none" />
+      </SvgG>
+    </Svg>
+  );
+}
+
+type MapImageEntry = { source: { uri: string }; sdf?: boolean };
+
+function BusVehicleSvg({ svgRef }: { svgRef: React.RefObject<Svg | null> }) {
+  // White paths on transparent background → SDF mode lets MapLibre colorize at runtime
+  return (
+    <Svg ref={svgRef} width={BUS_ICON_SIZE} height={BUS_ICON_SIZE} viewBox="0 0 56 56">
+      <SvgG transform="translate(8, 10) scale(1.7)">
+        <SvgPath d="M8 6v6" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="M15 6v6" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="M2 12h19.6" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath
+          d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"
+          stroke="white"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+        <SvgCircle cx="7" cy="18" r="2" stroke="white" strokeWidth="2" fill="white" />
+        <SvgPath d="M9 18h5" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgCircle cx="16" cy="18" r="2" stroke="white" strokeWidth="2" fill="white" />
+      </SvgG>
+    </Svg>
+  );
+}
+
+function MetroIconSvg({ svgRef }: { svgRef: React.RefObject<Svg | null> }) {
+  // White train-front paths on transparent background → SDF colorized by MapLibre
+  return (
+    <Svg ref={svgRef} width={BUS_ICON_SIZE} height={BUS_ICON_SIZE} viewBox="0 0 56 56">
+      <SvgG transform="translate(4, 4) scale(2)">
+        <SvgPath
+          d="M8 3.1V7a4 4 0 0 0 8 0V3.1"
+          stroke="white"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+        <SvgPath d="m9 15-1-1" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="m15 15 1-1" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath
+          d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z"
+          stroke="white"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+        <SvgPath d="m8 19-2 3" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="m16 19 2 3" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+      </SvgG>
+    </Svg>
+  );
+}
+
+function CptmIconSvg({ svgRef }: { svgRef: React.RefObject<Svg | null> }) {
+  // Tram-front paths only — layered on top of CptmBgSvg, colored white via SDF
+  return (
+    <Svg ref={svgRef} width={BUS_ICON_SIZE} height={BUS_ICON_SIZE} viewBox="0 0 56 56">
+      <SvgG transform="translate(10, 10) scale(1.5)">
+        <SvgRect
+          x="4"
+          y="3"
+          width="16"
+          height="16"
+          rx="2"
+          stroke="white"
+          strokeWidth="2"
+          fill="none"
+        />
+        <SvgPath d="M4 11h16" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="M12 3v8" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="m8 19-2 3" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="m18 22-2-3" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <SvgPath d="M8 15h.01" stroke="white" strokeWidth="3" strokeLinecap="round" fill="none" />
+        <SvgPath d="M16 15h.01" stroke="white" strokeWidth="3" strokeLinecap="round" fill="none" />
+      </SvgG>
+    </Svg>
+  );
+}
+
+function CptmBgSvg({ svgRef }: { svgRef: React.RefObject<Svg | null> }) {
+  // White filled rounded square → SDF colored with line color as background
+  return (
+    <Svg ref={svgRef} width={BUS_ICON_SIZE} height={BUS_ICON_SIZE} viewBox="0 0 56 56">
+      <SvgRect x="3" y="3" width="50" height="50" rx="10" fill="white" />
+    </Svg>
+  );
+}
+
+function useBusStopImages() {
+  const normalRef = useRef<Svg>(null);
+  const selectedRef = useRef<Svg>(null);
+  const vehicleRef = useRef<Svg>(null);
+  const metroRef = useRef<Svg>(null);
+  const cptmRef = useRef<Svg>(null);
+  const cptmBgRef = useRef<Svg>(null);
+  const [mapImages, setMapImages] = useState<Record<string, MapImageEntry>>({});
+
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const collected: Record<string, MapImageEntry> = {};
+      let done = 0;
+
+      const finish = () => {
+        done++;
+        if (done === 6) setMapImages(collected);
+      };
+
+      (normalRef.current as any)?.toDataURL?.((b64: string) => {
+        collected['bus-stop'] = { source: { uri: `data:image/png;base64,${b64}` } };
+        finish();
+      });
+      (selectedRef.current as any)?.toDataURL?.((b64: string) => {
+        collected['bus-stop-selected'] = { source: { uri: `data:image/png;base64,${b64}` } };
+        finish();
+      });
+      (vehicleRef.current as any)?.toDataURL?.((b64: string) => {
+        collected['bus-vehicle'] = { source: { uri: `data:image/png;base64,${b64}` }, sdf: true };
+        finish();
+      });
+      (metroRef.current as any)?.toDataURL?.((b64: string) => {
+        collected['metro-icon'] = { source: { uri: `data:image/png;base64,${b64}` }, sdf: true };
+        finish();
+      });
+      (cptmRef.current as any)?.toDataURL?.((b64: string) => {
+        collected['cptm-icon'] = { source: { uri: `data:image/png;base64,${b64}` }, sdf: true };
+        finish();
+      });
+      (cptmBgRef.current as any)?.toDataURL?.((b64: string) => {
+        collected['cptm-bg'] = { source: { uri: `data:image/png;base64,${b64}` }, sdf: true };
+        finish();
+      });
+    }, 80);
+    return () => clearTimeout(id);
+  }, []);
+
+  return { mapImages, normalRef, selectedRef, vehicleRef, metroRef, cptmRef, cptmBgRef };
+}
+
 const iconStyles = StyleSheet.create({
   userBadge: {
     width: 28,
@@ -99,6 +293,13 @@ const iconStyles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.3,
     shadowRadius: 2,
+  },
+  hiddenCapture: {
+    position: 'absolute',
+    left: -1000,
+    top: -1000,
+    width: BUS_ICON_SIZE,
+    height: BUS_ICON_SIZE * 6,
   },
 });
 
@@ -122,7 +323,10 @@ export const BusMap = React.memo(function BusMap({
   onLinePress,
   onMetroLinePress,
   onNoRoute,
+  onMapPress,
 }: BusMapProps) {
+  const { mapImages, normalRef, selectedRef, vehicleRef, metroRef, cptmRef, cptmBgRef } =
+    useBusStopImages();
   const cameraRef = useRef<CameraRef>(null);
   const lastFitKey = useRef<string | null>(null);
   const prevCenterOn = useRef<typeof centerOn>(undefined);
@@ -227,7 +431,7 @@ export const BusMap = React.memo(function BusMap({
           properties: {
             color: v.lineColor ?? (v.a ? '#4FE566' : '#3D9EFF'),
             p: v.p,
-            lineCode: v.lineCode ?? '',
+            lineCode: v.lineCode ?? undefined,
           },
         })),
       });
@@ -254,7 +458,7 @@ export const BusMap = React.memo(function BusMap({
             properties: {
               color: v.lineColor ?? (v.a ? '#4FE566' : '#3D9EFF'),
               p: v.p,
-              lineCode: v.lineCode ?? '',
+              lineCode: v.lineCode ?? undefined,
             },
           };
         }),
@@ -303,9 +507,13 @@ export const BusMap = React.memo(function BusMap({
     source: 'metro' | 'vehicle';
   } | null>(null);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Tracks the last vehicle press timestamp so handleStopPress can ignore
+  // simultaneous stop-press events that MapLibre fires when a vehicle overlaps a stop.
+  const lastVehiclePressMs = useRef(0);
+
   const handleStopPress = useCallback(
     (event: any) => {
+      if (Date.now() - lastVehiclePressMs.current < 150) return;
       const cp = event.nativeEvent?.features?.[0]?.properties?.cp as number | undefined;
       if (cp != null) {
         const stop = spStops?.find((s) => s.cp === cp);
@@ -339,8 +547,9 @@ export const BusMap = React.memo(function BusMap({
   const handleVehiclePress = useCallback((event: any) => {
     const props = event.nativeEvent?.features?.[0]?.properties;
     if (props?.p != null) {
+      lastVehiclePressMs.current = Date.now();
       setInfoCallout({
-        title: `Veículo ${props.p}`,
+        title: props.lineCode || `Veículo ${props.p}`,
         subtitle: props.lineCode ? `Linha ${props.lineCode}` : undefined,
         color: props.color ?? undefined,
         lineCode: props.lineCode || undefined,
@@ -355,18 +564,31 @@ export const BusMap = React.memo(function BusMap({
 
   return (
     <View style={styles.container}>
+      {/* Off-screen SVGs captured once as PNG sprites for MapLibre */}
+      <View style={iconStyles.hiddenCapture} pointerEvents="none">
+        <BusStopSvg bg="#1e2e2b" fg="#f5c54a" svgRef={normalRef} />
+        <BusStopSvg bg="#1e2e2b" fg="#4FE566" svgRef={selectedRef} />
+        <BusVehicleSvg svgRef={vehicleRef} />
+        <MetroIconSvg svgRef={metroRef} />
+        <CptmIconSvg svgRef={cptmRef} />
+        <CptmBgSvg svgRef={cptmBgRef} />
+      </View>
+
       <MapView
         style={styles.map}
         mapStyle={BLANK_STYLE}
         touchRotate={false}
         touchPitch={false}
         attribution={false}
-        logo={false}>
+        logo={false}
+        onPress={onMapPress ? () => onMapPress() : undefined}>
         <Camera ref={cameraRef} initialViewState={{ center: INITIAL_CENTER, zoom: INITIAL_ZOOM }} />
 
         <RasterSource id="carto" tiles={CARTO_TILES} tileSize={256}>
           <Layer id="carto-tiles" type="raster" />
         </RasterSource>
+
+        <Images images={mapImages} />
 
         {/* Route lines use beforeId to always render below the circle layers,
           even when loaded asynchronously after circles are already in the style. */}
@@ -414,12 +636,15 @@ export const BusMap = React.memo(function BusMap({
           </GeoJSONSource>
         )}
 
-        {/* Metro/CPTM stations: medallion = colored ring + white inner dot */}
+        {/* Metro stations: colored circle + white train-front icon (SDF) */}
+        {/* CPTM stations: colored rounded-square outline + colored tram-front icon (SDF) */}
         <GeoJSONSource id="metro-stations" data={metroFCData} onPress={handleMetroPress}>
           <Layer
+            key="metro-stations-base"
             id="metro-stations-base"
             type="circle"
             minzoom={SHOW_METRO_ZOOM}
+            filter={['==', ['get', 'network'], 'Metrô SP']}
             paint={{
               'circle-radius': 9,
               'circle-color': ['get', 'color'],
@@ -428,86 +653,98 @@ export const BusMap = React.memo(function BusMap({
             }}
           />
           <Layer
-            id="metro-stations-dot"
-            type="circle"
+            key="metro-icon"
+            id="metro-icon"
+            type="symbol"
             minzoom={SHOW_METRO_ZOOM}
-            paint={{
-              'circle-radius': 3.5,
-              'circle-color': 'white',
-              'circle-opacity': 0.55,
+            filter={['==', ['get', 'network'], 'Metrô SP']}
+            layout={{
+              'icon-image': 'metro-icon',
+              'icon-size': METRO_ICON_SIZE,
+              'icon-allow-overlap': true,
+              'icon-anchor': 'center',
             }}
+            paint={{ 'icon-color': 'white' }}
+          />
+          <Layer
+            key="cptm-bg"
+            id="cptm-bg"
+            type="symbol"
+            minzoom={SHOW_METRO_ZOOM}
+            filter={['==', ['get', 'network'], 'CPTM']}
+            layout={{
+              'icon-image': 'cptm-bg',
+              'icon-size': CPTM_ICON_SIZE,
+              'icon-allow-overlap': true,
+              'icon-anchor': 'center',
+            }}
+            paint={{ 'icon-color': ['get', 'color'] }}
+          />
+          <Layer
+            key="cptm-icon"
+            id="cptm-icon"
+            type="symbol"
+            minzoom={SHOW_METRO_ZOOM}
+            filter={['==', ['get', 'network'], 'CPTM']}
+            layout={{
+              'icon-image': 'cptm-icon',
+              'icon-size': CPTM_ICON_SIZE,
+              'icon-allow-overlap': true,
+              'icon-anchor': 'center',
+            }}
+            paint={{ 'icon-color': 'white' }}
           />
         </GeoJSONSource>
 
-        {/* Bus stops: bullseye = amber ring + dark center dot */}
+        {/* Bus stops: SVG sprite icon (pre-rendered at init, zero map-frame delay) */}
         <GeoJSONSource id="stops-src" data={stopsFCData} onPress={handleStopPress}>
-          {/* Unselected: bullseye pattern */}
           <Layer
-            id="stops-unselected-base"
-            type="circle"
+            id="stops-unselected"
+            type="symbol"
             minzoom={SHOW_STOPS_ZOOM}
             filter={['!=', ['get', 'cp'], selectedId]}
-            paint={{
-              'circle-radius': 7,
-              'circle-color': '#f5c54a',
-              'circle-stroke-width': 2,
-              'circle-stroke-color': '#1e2e2b',
+            layout={{
+              'icon-image': 'bus-stop',
+              'icon-size': STOP_ICON_SIZE,
+              'icon-allow-overlap': true,
+              'icon-anchor': 'center',
             }}
           />
           <Layer
-            id="stops-unselected-dot"
-            type="circle"
-            minzoom={SHOW_STOPS_ZOOM}
-            filter={['!=', ['get', 'cp'], selectedId]}
-            paint={{
-              'circle-radius': 2.5,
-              'circle-color': '#1e2e2b',
-            }}
-          />
-          {/* Selected: green crosshair, no minzoom = always visible */}
-          <Layer
-            id="stops-selected-base"
-            type="circle"
+            id="stops-selected"
+            type="symbol"
             filter={['==', ['get', 'cp'], selectedId]}
-            paint={{
-              'circle-radius': 12,
-              'circle-color': '#4FE566',
-              'circle-stroke-width': 3,
-              'circle-stroke-color': 'white',
-            }}
-          />
-          <Layer
-            id="stops-selected-dot"
-            type="circle"
-            filter={['==', ['get', 'cp'], selectedId]}
-            paint={{
-              'circle-radius': 4,
-              'circle-color': 'white',
-              'circle-opacity': 0.8,
+            layout={{
+              'icon-image': 'bus-stop-selected',
+              'icon-size': STOP_ICON_SIZE_SELECTED,
+              'icon-allow-overlap': true,
+              'icon-anchor': 'center',
             }}
           />
         </GeoJSONSource>
 
-        {/* Vehicles: aura (semi-transparent halo) + solid body */}
+        {/* Vehicles: colored circle (line color) + white SDF bus icon */}
         <GeoJSONSource id="vehicles-src" data={vehiclesDisplay} onPress={handleVehiclePress}>
-          <Layer
-            id="vehicles-halo"
-            type="circle"
-            paint={{
-              'circle-radius': 15,
-              'circle-color': ['get', 'color'],
-              'circle-opacity': 0.2,
-            }}
-          />
           <Layer
             id="vehicles-body"
             type="circle"
             paint={{
-              'circle-radius': 9,
+              'circle-radius': 11,
               'circle-color': ['get', 'color'],
               'circle-stroke-width': 2,
               'circle-stroke-color': 'white',
             }}
+          />
+          <Layer
+            id="vehicles-icon"
+            type="symbol"
+            layout={{
+              'icon-image': 'bus-vehicle',
+              'icon-size': STOP_ICON_SIZE * 0.7,
+              'icon-allow-overlap': true,
+              'icon-anchor': 'center',
+            }}
+            paint={{ 'icon-color': 'white' }}
           />
         </GeoJSONSource>
 

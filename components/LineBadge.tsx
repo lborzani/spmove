@@ -8,20 +8,26 @@ interface Props {
 }
 
 export function LineBadge({ line, size = 40 }: Props) {
+  return <LineCodeBadge num={line.num} color={line.color} size={size} />;
+}
+
+interface CodeProps {
+  num: string;
+  color: string;
+  size?: number;
+}
+
+export function LineCodeBadge({ num, color, size = 40 }: CodeProps) {
   const radius = Math.min(10, size * 0.28);
   const fontSize = size * 0.42;
 
   return (
-    <View style={[
-      styles.badge,
-      {
-        width: size,
-        height: size,
-        borderRadius: radius,
-        backgroundColor: line.color,
-      },
-    ]}>
-      <Text style={[styles.num, { fontSize }]}>{line.num}</Text>
+    <View
+      style={[
+        styles.badge,
+        { width: size, height: size, borderRadius: radius, backgroundColor: color },
+      ]}>
+      <Text style={[styles.num, { fontSize }]}>{num}</Text>
     </View>
   );
 }

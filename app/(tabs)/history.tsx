@@ -6,18 +6,19 @@ import {
   Pressable,
   StyleSheet,
   Animated,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { theme, STATUS_META } from '@/constants/theme';
+import { theme, STATUS_META, textStyles } from '@/constants/theme';
 import { LINE_META, fetchOcorrencias, todayISO, daysAgoISO } from '@/services/api';
+import { LineCodeBadge } from '@/components/LineBadge';
+import { QueryStateView } from '@/components/QueryStateView';
 import type { RichOcorrencia } from '@/constants/data';
 
 const SERVICE_START = '04:40';
-const SERVICE_END   = '00:00';
+const SERVICE_END = '00:00';
 
 function PulseRing({ color }: { color: string }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -25,22 +26,24 @@ function PulseRing({ color }: { color: string }) {
     Animated.loop(
       Animated.sequence([
         Animated.timing(anim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0, duration: 600,  useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 600, useNativeDriver: true }),
       ]),
     ).start();
     return () => anim.stopAnimation();
   }, [anim]);
-  const scale   = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] });
-  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0]  });
+  const scale = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] });
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
   return (
-    <Animated.View style={[styles.pulseRing, { borderColor: color, transform: [{ scale }], opacity }]} />
+    <Animated.View
+      style={[styles.pulseRing, { borderColor: color, transform: [{ scale }], opacity }]}
+    />
   );
 }
 
 function dayLabel(isoDate: string): string {
-  const today     = todayISO();
+  const today = todayISO();
   const yesterday = daysAgoISO(1);
-  if (isoDate === today)     return 'Hoje';
+  if (isoDate === today) return 'Hoje';
   if (isoDate === yesterday) return 'Ontem';
   const [, m, d] = isoDate.split('-');
   return `${d}/${m}`;
@@ -49,15 +52,14 @@ function dayLabel(isoDate: string): string {
 export default function HistoryScreen() {
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ['ocorrencias-3d', todayISO()],
-    queryFn:  () => fetchOcorrencias(daysAgoISO(2), todayISO()),
+    queryFn: () => fetchOcorrencias(daysAgoISO(2), todayISO()),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 
-  const ocorrencias = data ?? [];
-
   // Agrupar por dia ISO, cada grupo ordenado mais recente primeiro
   const byDay = useMemo(() => {
+    const ocorrencias = data ?? [];
     const map: Record<string, RichOcorrencia[]> = {};
     for (const o of ocorrencias) {
       const day = o.dataHora.split('T')[0];
@@ -69,40 +71,32 @@ export default function HistoryScreen() {
     }
     // Retorna dias ordenados desc (mais recente primeiro)
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
-  }, [ocorrencias]);
+  }, [data]);
 
   const today = new Date().toLocaleDateString('pt-BR', {
-    weekday: 'long', day: 'numeric', month: 'long',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
   });
 
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>ÚLTIMOS 3 DIAS</Text>
-        <Text style={styles.title}>Linha do tempo</Text>
-        {!isLoading && (
-          <Text style={styles.subtitle}>{today}</Text>
-        )}
+        <Text style={textStyles.eyebrow}>ÚLTIMOS 3 DIAS</Text>
+        <Text style={textStyles.pageTitle}>Linha do tempo</Text>
+        {!isLoading && <Text style={styles.subtitle}>{today}</Text>}
       </View>
 
-      {isLoading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={theme.accent} />
-          <Text style={styles.loadingText}>Carregando histórico…</Text>
-        </View>
-      ) : isError ? (
-        <View style={styles.centered}>
-          <Text style={styles.errorTitle}>Sem conexão</Text>
-          <Text style={styles.errorBody}>Não foi possível carregar o histórico.</Text>
-          <Pressable style={styles.retryBtn} onPress={() => refetch()}>
-            <Text style={styles.retryText}>TENTAR NOVAMENTE</Text>
-          </Pressable>
-        </View>
-      ) : byDay.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyText}>Sem ocorrências nos últimos 3 dias.</Text>
-        </View>
-      ) : (
+      <QueryStateView
+        isLoading={isLoading}
+        isError={isError}
+        isEmpty={!isLoading && !isError && byDay.length === 0}
+        loadingText="Carregando histórico…"
+        errorBody="Não foi possível carregar o histórico."
+        emptyText="Sem ocorrências nos últimos 3 dias."
+        onRetry={refetch}
+      />
+      {!isLoading && !isError && byDay.length > 0 && (
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
@@ -114,12 +108,11 @@ export default function HistoryScreen() {
               tintColor={theme.accent}
               colors={[theme.accent]}
             />
-          }
-        >
+          }>
           {byDay.map(([isoDate, events]) => {
             const isToday = isoDate === todayISO();
             const nowH = new Date().getHours();
-            const serviceEnded = !isToday || nowH >= 0 && nowH < 4;
+            const serviceEnded = !isToday || (nowH >= 0 && nowH < 4);
 
             return (
               <View key={isoDate}>
@@ -150,7 +143,7 @@ export default function HistoryScreen() {
 
                   {/* Eventos */}
                   {events.map((o) => {
-                    const meta     = STATUS_META[o.status];
+                    const meta = STATUS_META[o.status];
                     const lineMeta = LINE_META[o.lineCode];
                     const isOngoing = o.status !== 'normal';
 
@@ -165,20 +158,25 @@ export default function HistoryScreen() {
                         </View>
                         <Pressable
                           onPress={() => router.push(`/line/${o.lineCode}`)}
-                          style={({ pressed }) => [styles.card, { opacity: pressed ? 0.75 : 1 }]}
-                        >
+                          style={({ pressed }) => [styles.card, { opacity: pressed ? 0.75 : 1 }]}>
                           <View style={styles.cardHeader}>
-                            <View style={[styles.lineBadge, { backgroundColor: lineMeta?.color ?? '#888' }]}>
-                              <Text style={styles.lineBadgeText}>{o.lineCode}</Text>
-                            </View>
+                            <LineCodeBadge
+                              num={o.lineCode}
+                              color={lineMeta?.color ?? '#888'}
+                              size={22}
+                            />
                             <Text style={styles.lineName}>{o.lineName}</Text>
                             <Text style={styles.lineNet}>{o.net}</Text>
                             <View style={styles.statusChip}>
                               {isOngoing ? (
-                                <Text style={[styles.ongoingLabel, {
-                                  color: meta.color,
-                                  backgroundColor: `${meta.color}1f`,
-                                }]}>
+                                <Text
+                                  style={[
+                                    styles.ongoingLabel,
+                                    {
+                                      color: meta.color,
+                                      backgroundColor: `${meta.color}1f`,
+                                    },
+                                  ]}>
                                   Em curso
                                 </Text>
                               ) : (
@@ -188,7 +186,9 @@ export default function HistoryScreen() {
                           </View>
                           <Text style={styles.cardTitle}>{o.situacao}</Text>
                           {o.descricao ? (
-                            <Text style={styles.cardBody} numberOfLines={2}>{o.descricao}</Text>
+                            <Text style={styles.cardBody} numberOfLines={2}>
+                              {o.descricao}
+                            </Text>
                           ) : null}
                         </Pressable>
                       </View>
@@ -218,77 +218,110 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  root:   { flex: 1, backgroundColor: theme.bg },
+  root: { flex: 1, backgroundColor: theme.bg },
   header: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
-  eyebrow:  { color: theme.textDim, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase' },
-  title:    { color: theme.text, fontSize: 24, fontWeight: '700', letterSpacing: -0.6, marginTop: 2 },
   subtitle: { color: theme.textDim, fontSize: 12.5, marginTop: 2 },
 
-  scroll:        { flex: 1 },
+  scroll: { flex: 1 },
   scrollContent: { paddingBottom: 40 },
 
-  centered:    { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
-  loadingText: { color: theme.textDim, fontSize: 13, marginTop: 8 },
-  errorTitle:  { color: theme.text, fontSize: 16, fontWeight: '700' },
-  errorBody:   { color: theme.textDim, fontSize: 13, textAlign: 'center' },
-  retryBtn:    { marginTop: 8, paddingVertical: 12, paddingHorizontal: 20, backgroundColor: theme.accent, borderRadius: theme.radiusCard },
-  retryText:   { color: theme.onAccent, fontWeight: '700', fontSize: 12, letterSpacing: 1 },
-  emptyText:   { color: theme.textDim, fontSize: 13, textAlign: 'center' },
-
   dayHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: 18, paddingTop: 20, paddingBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 4,
   },
-  dayLabel:   { color: theme.text, fontSize: 14, fontWeight: '700' },
+  dayLabel: { color: theme.text, fontSize: 14, fontWeight: '700' },
   dayDivider: { flex: 1, height: 1, backgroundColor: theme.border },
-  dayCount:   { color: theme.textFaint, fontSize: 11 },
+  dayCount: { color: theme.textFaint, fontSize: 11 },
 
   timeline: { paddingHorizontal: 18, paddingTop: 8, position: 'relative' },
   axis: {
     position: 'absolute',
     left: 18 + 40 + 8 + 8 - 1,
-    top: 24, bottom: 24, width: 2,
+    top: 24,
+    bottom: 24,
+    width: 2,
     backgroundColor: theme.border,
   },
-  row:         { flexDirection: 'row', gap: 8, marginBottom: 14 },
-  timeCol:     { width: 40, paddingTop: 12, flexShrink: 0 },
-  timeText:    { color: theme.textDim, fontSize: 11, fontWeight: '600', textAlign: 'right' },
-  nodeWrapper: { width: 16, paddingTop: 12, alignItems: 'center', flexShrink: 0, position: 'relative', overflow: 'visible' },
+  row: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  timeCol: { width: 40, paddingTop: 12, flexShrink: 0 },
+  timeText: { color: theme.textDim, fontSize: 11, fontWeight: '600', textAlign: 'right' },
+  nodeWrapper: {
+    width: 16,
+    paddingTop: 12,
+    alignItems: 'center',
+    flexShrink: 0,
+    position: 'relative',
+    overflow: 'visible',
+  },
   node: {
-    width: 14, height: 14, borderRadius: 7, borderWidth: 3,
-    backgroundColor: theme.bg, zIndex: 1,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 3,
+    backgroundColor: theme.bg,
+    zIndex: 1,
   },
   pulseRing: {
-    position: 'absolute', top: 9, left: -2,
-    width: 20, height: 20, borderRadius: 10, borderWidth: 2,
+    position: 'absolute',
+    top: 9,
+    left: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
   },
   card: {
-    flex: 1, backgroundColor: theme.surface,
-    borderWidth: 1, borderColor: theme.border,
-    borderRadius: theme.radiusCard, padding: 12,
+    flex: 1,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: theme.radiusCard,
+    padding: 12,
   },
-  cardHeader:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  lineBadge: {
-    width: 22, height: 22, borderRadius: 5,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  lineBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
-  lineName:   { color: theme.text, fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
-  lineNet:    { color: theme.textFaint, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  lineName: { color: theme.text, fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
+  lineNet: { color: theme.textFaint, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 },
   statusChip: { marginLeft: 'auto' },
   ongoingLabel: {
-    fontSize: 10, fontWeight: '700', textTransform: 'uppercase',
-    letterSpacing: 1, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 999,
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
   },
-  resolvedLabel: { color: theme.textFaint, fontSize: 10, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 1 },
-  cardTitle:  { color: theme.text, fontSize: 13.5, fontWeight: '600', lineHeight: 18 },
-  cardBody:   { color: theme.textDim, fontSize: 12.5, lineHeight: 17, marginTop: 3 },
+  resolvedLabel: {
+    color: theme.textFaint,
+    fontSize: 10,
+    fontWeight: '500',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  cardTitle: { color: theme.text, fontSize: 13.5, fontWeight: '600', lineHeight: 18 },
+  cardBody: { color: theme.textDim, fontSize: 12.5, lineHeight: 17, marginTop: 3 },
 
   boundaryMarker: {
-    flex: 1, backgroundColor: theme.surfaceElev,
-    borderWidth: 1, borderColor: theme.border, borderStyle: 'dashed',
-    borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14,
-    alignItems: 'center', justifyContent: 'center',
+    flex: 1,
+    backgroundColor: theme.surfaceElev,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  boundaryText: { color: theme.textDim, fontSize: 11, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' },
+  boundaryText: {
+    color: theme.textDim,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
 });

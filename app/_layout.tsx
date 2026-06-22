@@ -24,11 +24,10 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { theme } from '@/constants/theme';
+import { ONBOARDED_KEY } from '@/constants/storage';
 import { SubscriptionProvider } from '@/context/SubscriptionContext';
 
 SplashScreen.preventAutoHideAsync();
-
-const ONBOARDED_KEY = 'linha_onboarded';
 
 const queryClient = new QueryClient({
   defaultOptions: {

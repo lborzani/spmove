@@ -10,14 +10,23 @@ function makeUUID(): string {
 }
 
 let cached: string | null = null;
+let pending: Promise<string> | null = null;
 
-export async function getDeviceId(): Promise<string> {
-  if (cached) return cached;
-  let id = await AsyncStorage.getItem(KEY);
-  if (!id) {
-    id = makeUUID();
-    await AsyncStorage.setItem(KEY, id);
-  }
-  cached = id;
-  return id;
+export function getDeviceId(): Promise<string> {
+  if (cached) return Promise.resolve(cached);
+  if (pending) return pending;
+  pending = (async () => {
+    try {
+      let id = await AsyncStorage.getItem(KEY);
+      if (!id) {
+        id = makeUUID();
+        await AsyncStorage.setItem(KEY, id);
+      }
+      cached = id;
+      return id;
+    } finally {
+      pending = null;
+    }
+  })();
+  return pending;
 }
