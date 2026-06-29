@@ -1,0 +1,24 @@
+{
+  "name": "SPMove",
+  "short_name": "SPMove",
+  "description": "Status da rede de transporte de São Paulo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#151515",
+  "theme_color": "#151515",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

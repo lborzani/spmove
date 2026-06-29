@@ -1,8 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Switch, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  Switch,
+  Alert,
+  Platform,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { theme, textStyles } from '@/constants/theme';
 import { IcoArrowLeft } from '@/components/Icons';
@@ -11,21 +19,28 @@ import { requestNotificationPermissions } from '@/services/notifications';
 import { registerWithBackend, unregisterFromBackend } from '@/services/pushRegistration';
 import { getFavorites } from '@/constants/favPrefs';
 import { useSubscription } from '@/context/SubscriptionContext';
+import { usePWAInstall } from '@/hooks/usePWAInstall';
 
 export default function SettingsScreen() {
   const { isPremium } = useSubscription();
   const [globalEnabled, setGlobal] = useState(false);
   const [permGranted, setPermGranted] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const pwaInstall = usePWAInstall();
 
   useEffect(() => {
     (async () => {
-      const [global, { status }] = await Promise.all([
-        getGlobalEnabled(),
-        Notifications.getPermissionsAsync(),
-      ]);
+      let granted = false;
+      if (Platform.OS === 'web') {
+        granted = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+      } else {
+        const { default: Notifications } = await import('expo-notifications');
+        const { status } = await Notifications.getPermissionsAsync();
+        granted = status === 'granted';
+      }
+      const global = await getGlobalEnabled();
       setGlobal(global);
-      setPermGranted(status === 'granted');
+      setPermGranted(granted);
       setLoaded(true);
     })();
   }, []);
@@ -108,6 +123,38 @@ export default function SettingsScreen() {
             </Text>
           )}
         </View>
+
+        {Platform.OS === 'web' && pwaInstall.status !== 'installed' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>INSTALAR APP</Text>
+            {pwaInstall.status === 'installable' && (
+              <Pressable onPress={pwaInstall.prompt} style={styles.installBtn}>
+                <Text style={styles.installBtnText}>Adicionar à tela inicial</Text>
+              </Pressable>
+            )}
+            {pwaInstall.status === 'ios-manual' && (
+              <View style={styles.row}>
+                <View style={styles.rowInfo}>
+                  <Text style={styles.rowLabel}>Instalar no iPhone</Text>
+                  <Text style={styles.rowSub}>
+                    Toque em <Text style={{ fontWeight: '700' }}>Compartilhar</Text> →{' '}
+                    <Text style={{ fontWeight: '700' }}>Adicionar à Tela de Início</Text>
+                  </Text>
+                </View>
+              </View>
+            )}
+            {pwaInstall.status === 'unsupported' && (
+              <View style={styles.row}>
+                <View style={styles.rowInfo}>
+                  <Text style={styles.rowLabel}>Instalar app</Text>
+                  <Text style={styles.rowSub}>
+                    Abra no Safari (iOS) ou Chrome (Android) para instalar.
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>SOBRE</Text>
@@ -196,6 +243,19 @@ const styles = StyleSheet.create({
   },
   infoLabel: { color: theme.textDim, fontSize: 13 },
   infoValue: { color: theme.text, fontSize: 13, fontWeight: '500' },
+
+  installBtn: {
+    backgroundColor: theme.accent,
+    borderRadius: theme.radiusCard,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  installBtnText: {
+    color: theme.onAccent,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
 
   footer: { paddingHorizontal: 22, paddingTop: 28 },
   footerText: {

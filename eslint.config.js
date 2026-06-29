@@ -1,9 +1,14 @@
 const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
+const tsPlugin = require('@typescript-eslint/eslint-plugin');
+const globals = require('globals');
 
 module.exports = defineConfig([
   ...expoConfig,
   {
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+    },
     rules: {
       'no-console': 'error',
       '@typescript-eslint/no-explicit-any': 'warn',
@@ -16,6 +21,12 @@ module.exports = defineConfig([
       // setState em effects é válido em debounce e subscriptions
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/exhaustive-deps': 'warn',
+    },
+  },
+  {
+    files: ['public/sw.js'],
+    languageOptions: {
+      globals: globals.serviceworker,
     },
   },
   {

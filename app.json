@@ -59,6 +59,19 @@
     "owner": "casca0",
     "ios": {
       "bundleIdentifier": "com.lborzani.spmove"
+    },
+    "web": {
+      "output": "static",
+      "bundler": "metro",
+      "name": "SPMove",
+      "shortName": "SPMove",
+      "description": "Status da rede de transporte de São Paulo",
+      "themeColor": "#151515",
+      "backgroundColor": "#151515",
+      "display": "standalone",
+      "orientation": "portrait",
+      "icon": "./assets/icon.png",
+      "favicon": "./assets/icon.png"
     }
   }
 }

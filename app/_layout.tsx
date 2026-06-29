@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   setupNotificationHandler,
   setupAndroidChannel,
@@ -7,7 +7,7 @@ import {
 import { getGlobalEnabled } from '@/constants/notifPrefs';
 import { registerWithBackend } from '@/services/pushRegistration';
 import { getFavorites } from '@/constants/favPrefs';
-import { View } from 'react-native';
+import { View, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack, router } from 'expo-router';
@@ -50,6 +50,23 @@ function AppNavigator() {
   });
 
   useEffect(() => {
+    if (Platform.OS === 'web') {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => null);
+      }
+      import('@/services/installPrompt.web').then(({ captureInstallPrompt }) => {
+        captureInstallPrompt();
+      });
+      (async () => {
+        const granted = await requestNotificationPermissions();
+        if (!granted) return;
+        const enabled = await getGlobalEnabled();
+        if (!enabled) return;
+        const favorites = await getFavorites();
+        registerWithBackend(favorites).catch(() => null);
+      })();
+      return;
+    }
     setupNotificationHandler();
     setupAndroidChannel();
     (async () => {

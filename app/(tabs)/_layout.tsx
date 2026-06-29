@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { theme } from '@/constants/theme';
 import { IcoHome, IcoBell, IcoHistory, IcoMap } from '@/components/Icons';
 
@@ -14,12 +14,11 @@ function TabIcon({ focused, label, Icon }: TabIconProps) {
   return (
     <View style={styles.tabItem}>
       <View style={[styles.pill, focused && styles.pillActive]}>
-        <Icon
-          size={20}
-          color={focused ? theme.accent : theme.textDim}
-        />
+        <Icon size={20} color={focused ? theme.accent : theme.textDim} />
       </View>
-      <Text style={[styles.tabLabel, { color: focused ? theme.accent : theme.textDim }]} numberOfLines={1}>
+      <Text
+        style={[styles.tabLabel, { color: focused ? theme.accent : theme.textDim }]}
+        numberOfLines={1}>
         {label}
       </Text>
     </View>
@@ -40,27 +39,24 @@ export default function TabsLayout() {
           paddingTop: 6,
         },
         tabBarShowLabel: false,
-      }}
-    >
+      }}>
       <Tabs.Screen
         name="index"
         options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} label="Início" Icon={IcoHome} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} label="Início" Icon={IcoHome} />,
         }}
       />
       <Tabs.Screen
         name="alerts"
         options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} label="Alertas" Icon={IcoBell} />
-          ),
+          href: null,
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} label="Alertas" Icon={IcoBell} />,
         }}
       />
       <Tabs.Screen
         name="history"
         options={{
+          href: null,
           tabBarIcon: ({ focused }) => (
             <TabIcon focused={focused} label="Histórico" Icon={IcoHistory} />
           ),
@@ -69,9 +65,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="onibus"
         options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} label="Ônibus" Icon={IcoMap} />
-          ),
+          href: Platform.OS === 'web' ? null : undefined,
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} label="Ônibus" Icon={IcoMap} />,
         }}
       />
     </Tabs>

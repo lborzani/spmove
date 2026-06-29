@@ -1,14 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const GLOBAL_KEY       = 'notif_global_enabled';
-const PREV_STATUS_KEY  = 'notif_prev_status';
-const PREV_OCORR_KEY   = 'notif_prev_ocorr_ids';
+const GLOBAL_KEY = 'notif_global_enabled';
+const PREV_STATUS_KEY = 'notif_prev_status';
+const PREV_OCORR_KEY = 'notif_prev_ocorr_ids';
 
 const lineKey = (num: string) => `notif_line_${num}`;
 
 export async function getGlobalEnabled(): Promise<boolean> {
   const val = await AsyncStorage.getItem(GLOBAL_KEY);
-  return val !== 'false';
+  return val === 'true';
 }
 export async function setGlobalEnabled(enabled: boolean) {
   await AsyncStorage.setItem(GLOBAL_KEY, enabled ? 'true' : 'false');
@@ -33,7 +33,11 @@ export async function getAllLinePrefs(nums: string[]): Promise<Record<string, bo
 
 export async function getPrevStatus(): Promise<Record<string, string> | null> {
   const val = await AsyncStorage.getItem(PREV_STATUS_KEY);
-  try { return val ? JSON.parse(val) : null; } catch { return null; }
+  try {
+    return val ? JSON.parse(val) : null;
+  } catch {
+    return null;
+  }
 }
 export async function savePrevStatus(status: Record<string, string>) {
   await AsyncStorage.setItem(PREV_STATUS_KEY, JSON.stringify(status));
@@ -41,7 +45,11 @@ export async function savePrevStatus(status: Record<string, string>) {
 
 export async function getPrevOcorrIds(): Promise<number[]> {
   const val = await AsyncStorage.getItem(PREV_OCORR_KEY);
-  try { return val ? JSON.parse(val) : []; } catch { return []; }
+  try {
+    return val ? JSON.parse(val) : [];
+  } catch {
+    return [];
+  }
 }
 export async function savePrevOcorrIds(ids: number[]) {
   await AsyncStorage.setItem(PREV_OCORR_KEY, JSON.stringify(ids));

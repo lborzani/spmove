@@ -2,7 +2,7 @@ import type { StatusResponse, OcorrenciasResponse } from '@/types/api';
 import type { Line, RichOcorrencia } from '@/constants/data';
 import type { StatusType } from '@/constants/theme';
 
-const BASE = 'https://ccm.artesp.sp.gov.br/metroferroviario/api';
+const BASE = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/metro`;
 
 // ── Metadados estáticos que a API não fornece ────────────────────────────────
 // (cores oficiais + rede — nunca mudam)
