@@ -1,7 +1,7 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { View, Text, StyleSheet, Platform } from 'react-native';
-import { theme } from '@/constants/theme';
+import { useRuntimeTheme } from '@/context/RuntimeThemeContext';
 import { IcoHome, IcoBell, IcoHistory, IcoMap } from '@/components/Icons';
 
 interface TabIconProps {
@@ -11,13 +11,14 @@ interface TabIconProps {
 }
 
 function TabIcon({ focused, label, Icon }: TabIconProps) {
+  const { rt } = useRuntimeTheme();
   return (
     <View style={styles.tabItem}>
-      <View style={[styles.pill, focused && styles.pillActive]}>
-        <Icon size={20} color={focused ? theme.accent : theme.textDim} />
+      <View style={[styles.pill, focused && { backgroundColor: rt.accentSoft }]}>
+        <Icon size={20} color={focused ? rt.accent : rt.textDim} />
       </View>
       <Text
-        style={[styles.tabLabel, { color: focused ? theme.accent : theme.textDim }]}
+        style={[styles.tabLabel, { color: focused ? rt.accent : rt.textDim }]}
         numberOfLines={1}>
         {label}
       </Text>
@@ -26,13 +27,14 @@ function TabIcon({ focused, label, Icon }: TabIconProps) {
 }
 
 export default function TabsLayout() {
+  const { rt } = useRuntimeTheme();
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: `${theme.surface}f5`,
-          borderTopColor: theme.border,
+          backgroundColor: `${rt.surface}f5`,
+          borderTopColor: rt.border,
           borderTopWidth: 1,
           height: 62,
           paddingBottom: 6,
@@ -87,9 +89,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
-  },
-  pillActive: {
-    backgroundColor: theme.accentSoft,
   },
   tabLabel: {
     fontSize: 10,

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Platform } from 'react-native';
 import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import { useSubscription } from '@/context/SubscriptionContext';
-import { theme } from '@/constants/theme';
+import { useRuntimeTheme } from '@/context/RuntimeThemeContext';
 
 // Substitua pelos IDs reais do console do AdMob em produção
 const AD_UNIT_ID = Platform.select({
@@ -13,14 +13,15 @@ const AD_UNIT_ID = Platform.select({
 
 export function AdBanner() {
   const { isPremium } = useSubscription();
+  const { rt } = useRuntimeTheme();
   if (isPremium) return null;
 
   return (
     <View
       style={{
         borderTopWidth: 1,
-        borderTopColor: theme.border,
-        backgroundColor: theme.bg,
+        borderTopColor: rt.border,
+        backgroundColor: rt.bg,
         alignItems: 'center',
       }}>
       <BannerAd

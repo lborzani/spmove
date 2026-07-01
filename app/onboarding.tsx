@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '@/constants/theme';
+import { useRuntimeTheme } from '@/context/RuntimeThemeContext';
 import { ONBOARDED_KEY } from '@/constants/storage';
 import { IcoLogo, IcoArrow } from '@/components/Icons';
 
@@ -34,6 +35,7 @@ const SLIDES = [
 ];
 
 export default function OnboardingScreen() {
+  const { rt } = useRuntimeTheme();
   const [step, setStep] = useState(0);
   const s = SLIDES[step];
   const isLast = step === SLIDES.length - 1;
@@ -52,14 +54,14 @@ export default function OnboardingScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={[styles.root, { backgroundColor: rt.bg }]}>
       {/* radial accent glow */}
       <View style={[styles.glow, { backgroundColor: `${s.accent}1a` }]} />
 
       {/* logo */}
       <View style={styles.header}>
         <IcoLogo size={26} color={s.accent} />
-        <Text style={[styles.brandName, { color: theme.text }]}>SPMove</Text>
+        <Text style={[styles.brandName, { color: rt.text }]}>SPMove</Text>
       </View>
 
       {/* hero text area — poster layout: content anchored to bottom */}
@@ -70,10 +72,10 @@ export default function OnboardingScreen() {
         </Text>
 
         {/* big poster title */}
-        <Text style={[styles.title, { color: theme.text }]}>{s.title}</Text>
+        <Text style={[styles.title, { color: rt.text }]}>{s.title}</Text>
 
         {/* body */}
-        <Text style={[styles.body, { color: theme.textDim }]}>{s.body}</Text>
+        <Text style={[styles.body, { color: rt.textDim }]}>{s.body}</Text>
       </View>
 
       {/* footer */}
@@ -87,7 +89,7 @@ export default function OnboardingScreen() {
                 styles.progressBar,
                 {
                   flex: i === step ? 2 : 1,
-                  backgroundColor: i === step ? s.accent : theme.borderStrong,
+                  backgroundColor: i === step ? s.accent : rt.border,
                 },
               ]}
             />
@@ -101,16 +103,16 @@ export default function OnboardingScreen() {
             styles.advanceBtn,
             { backgroundColor: s.accent, opacity: pressed ? 0.8 : 1 },
           ]}>
-          <Text style={[styles.advanceBtnText, { color: theme.onAccent }]}>
+          <Text style={[styles.advanceBtnText, { color: rt.onAccent }]}>
             {isLast ? 'ENTRAR' : 'AVANÇAR'}
           </Text>
-          <IcoArrow size={16} color={theme.onAccent} strokeWidth={2.4} />
+          <IcoArrow size={16} color={rt.onAccent} strokeWidth={2.4} />
         </Pressable>
 
         {/* skip */}
         {!isLast && (
           <Pressable onPress={finish} style={styles.skipBtn}>
-            <Text style={[styles.skipText, { color: theme.textFaint }]}>Pular</Text>
+            <Text style={[styles.skipText, { color: rt.textFaint }]}>Pular</Text>
           </Pressable>
         )}
       </View>

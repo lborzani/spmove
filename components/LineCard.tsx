@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { theme, STATUS_META } from '@/constants/theme';
+import { useRuntimeTheme } from '@/context/RuntimeThemeContext';
 import { LineBadge } from './LineBadge';
 import { StatusPill } from './StatusPill';
 import { IcoHeart } from './Icons';
@@ -21,20 +22,24 @@ export function LineCard({
   onFavoriteToggle,
   reportCount = 0,
 }: Props) {
+  const { rt } = useRuntimeTheme();
   const meta = STATUS_META[line.status];
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.card, { opacity: pressed ? 0.75 : 1 }]}>
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: rt.surface, borderColor: rt.border, opacity: pressed ? 0.75 : 1 },
+      ]}>
       <View style={[styles.statusStrip, { backgroundColor: meta.color }]} />
       <LineBadge line={line} size={40} />
       <View style={styles.info}>
         <View style={styles.nameRow}>
-          <Text style={styles.name}>{line.name}</Text>
-          <Text style={styles.netLabel}>{line.net}</Text>
+          <Text style={[styles.name, { color: rt.text }]}>{line.name}</Text>
+          <Text style={[styles.netLabel, { color: rt.textFaint }]}>{line.net}</Text>
         </View>
         <View style={styles.noteRow}>
-          <Text style={styles.note} numberOfLines={1}>
+          <Text style={[styles.note, { color: rt.textDim }]} numberOfLines={1}>
             {line.note}
           </Text>
           {reportCount > 0 && (
@@ -51,7 +56,7 @@ export function LineCard({
         <Pressable onPress={onFavoriteToggle} hitSlop={8} style={styles.heartBtn}>
           <IcoHeart
             size={18}
-            color={isFavorited ? '#ef4444' : theme.textFaint}
+            color={isFavorited ? '#ef4444' : rt.textFaint}
             filled={isFavorited}
             strokeWidth={2}
           />
@@ -68,9 +73,7 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: theme.border,
     borderRadius: theme.radiusCard,
     overflow: 'hidden',
   },
@@ -91,20 +94,18 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   name: {
-    color: theme.text,
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: -0.2,
   },
   netLabel: {
-    color: theme.textFaint,
     fontSize: 10,
     fontWeight: '500',
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
   noteRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
-  note: { color: theme.textDim, fontSize: 12, flexShrink: 1 },
+  note: { fontSize: 12, flexShrink: 1 },
   reportBadge: {
     backgroundColor: '#f59e0b22',
     borderWidth: 1,

@@ -93,6 +93,10 @@ export async function fetchStatus(): Promise<Line[]> {
         color: meta.color,
         status: statusType,
         note: apiLine.status.descricao || apiLine.status.situacao,
+        isEncerrado:
+          apiLine.status.situacao === 'Operação Encerrada' ||
+          apiLine.status.classificacao === 'ignorar' ||
+          (!apiLine.ativa && apiLine.status.classificacao !== 'problema'),
         situacao: apiLine.status.situacao,
         atualizadoHa: apiLine.status.atualizado_ha,
         estacoes: apiLine.estacoes?.nomes?.length ? apiLine.estacoes.nomes : undefined,

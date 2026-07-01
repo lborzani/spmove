@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { theme } from '@/constants/theme';
+import { useRuntimeTheme } from '@/context/RuntimeThemeContext';
 
 interface Props {
   isLoading: boolean;
@@ -23,11 +24,13 @@ export function QueryStateView({
   emptyText = 'Sem dados.',
   onRetry,
 }: Props) {
+  const { rt } = useRuntimeTheme();
+
   if (isLoading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={theme.accent} />
-        <Text style={styles.loadingText}>{loadingText}</Text>
+        <ActivityIndicator size="large" color={rt.accent} />
+        <Text style={[styles.loadingText, { color: rt.textDim }]}>{loadingText}</Text>
       </View>
     );
   }
@@ -35,10 +38,10 @@ export function QueryStateView({
   if (isError) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.errorTitle}>{errorTitle}</Text>
-        <Text style={styles.errorBody}>{errorBody}</Text>
-        <Pressable style={styles.retryBtn} onPress={onRetry}>
-          <Text style={styles.retryText}>TENTAR NOVAMENTE</Text>
+        <Text style={[styles.errorTitle, { color: rt.text }]}>{errorTitle}</Text>
+        <Text style={[styles.errorBody, { color: rt.textDim }]}>{errorBody}</Text>
+        <Pressable style={[styles.retryBtn, { backgroundColor: rt.accent }]} onPress={onRetry}>
+          <Text style={[styles.retryText, { color: rt.onAccent }]}>TENTAR NOVAMENTE</Text>
         </Pressable>
       </View>
     );
@@ -47,7 +50,7 @@ export function QueryStateView({
   if (isEmpty) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.emptyText}>{emptyText}</Text>
+        <Text style={[styles.emptyText, { color: rt.textDim }]}>{emptyText}</Text>
       </View>
     );
   }
@@ -57,16 +60,15 @@ export function QueryStateView({
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
-  loadingText: { color: theme.textDim, fontSize: 13, marginTop: 8 },
-  errorTitle: { color: theme.text, fontSize: 16, fontWeight: '700' },
-  errorBody: { color: theme.textDim, fontSize: 13, textAlign: 'center' },
+  loadingText: { fontSize: 13, marginTop: 8 },
+  errorTitle: { fontSize: 16, fontWeight: '700' },
+  errorBody: { fontSize: 13, textAlign: 'center' },
   retryBtn: {
     marginTop: 8,
     paddingVertical: 12,
     paddingHorizontal: 20,
-    backgroundColor: theme.accent,
     borderRadius: theme.radiusCard,
   },
-  retryText: { color: theme.onAccent, fontWeight: '700', fontSize: 12, letterSpacing: 1 },
-  emptyText: { color: theme.textDim, fontSize: 13, textAlign: 'center' },
+  retryText: { fontWeight: '700', fontSize: 12, letterSpacing: 1 },
+  emptyText: { fontSize: 13, textAlign: 'center' },
 });

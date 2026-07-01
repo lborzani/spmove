@@ -1,6 +1,31 @@
 // Bold Expressive vibe — dark poster aesthetic, square radii, neon green accent.
 
-export const theme = {
+export type AppRuntimeTheme = {
+  bg: string;
+  surface: string;
+  surfaceElev: string;
+  surfaceMuted: string;
+  border: string;
+  borderStrong: string;
+  text: string;
+  textDim: string;
+  textFaint: string;
+  accent: string;
+  accent2: string;
+  accent3: string;
+  accentSoft: string;
+  onAccent: string;
+  chipBg: string;
+  chipActive: string;
+  onChipActive: string;
+  radiusCard: number;
+  radiusChip: number;
+  fontDisplay: string;
+  fontBody: string;
+  fontMono: string;
+};
+
+export const theme: AppRuntimeTheme = {
   // backgrounds
   bg: '#0d1614',
   surface: '#1a2826',
@@ -35,8 +60,34 @@ export const theme = {
   // fonts
   fontDisplay: 'SpaceGrotesk_700Bold',
   fontBody: 'SpaceGrotesk_400Regular',
-  fontMono: 'SpaceGrotesk_600SemiBold', // fallback for mono labels
-} as const;
+  fontMono: 'SpaceGrotesk_600SemiBold',
+};
+
+export const charcoalTheme: AppRuntimeTheme = {
+  bg: '#111214',
+  surface: '#1C1E21',
+  surfaceElev: '#242628',
+  surfaceMuted: '#111214',
+  border: 'rgba(255, 255, 255, 0.09)',
+  borderStrong: 'rgba(255, 255, 255, 0.20)',
+  text: '#F4F4F5',
+  textDim: 'rgba(244, 244, 245, 0.55)',
+  textFaint: 'rgba(244, 244, 245, 0.30)',
+  // accent/chip são sobrescritos pelo contexto com as cores do tema estático
+  accent: '#9B9EA3',
+  accent2: '#B0B3B8',
+  accent3: '#D1D5DB',
+  accentSoft: '#9b9ea330',
+  onAccent: '#111214',
+  chipBg: 'transparent',
+  chipActive: '#E3E3DB',
+  onChipActive: '#111214',
+  radiusCard: 4,
+  radiusChip: 4,
+  fontDisplay: 'SpaceGrotesk_700Bold',
+  fontBody: 'SpaceGrotesk_400Regular',
+  fontMono: 'SpaceGrotesk_600SemiBold',
+};
 
 export const STATUS_META = {
   normal: { label: 'Normal', short: 'OK', color: '#4FE566', textOn: '#0d2415' },

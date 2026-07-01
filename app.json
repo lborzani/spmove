@@ -30,6 +30,7 @@
       ]
     },
     "plugins": [
+      "./plugins/withAndroidWidget",
       "expo-router",
       "expo-font",
       "expo-notifications",

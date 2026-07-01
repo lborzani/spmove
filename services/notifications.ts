@@ -22,11 +22,22 @@ export async function setupAndroidChannel() {
   });
 }
 
+export type NotifPermResult = 'granted' | 'denied' | 'blocked';
+
 export async function requestNotificationPermissions(): Promise<boolean> {
-  const { status: existing } = await Notifications.getPermissionsAsync();
+  const { status: existing, canAskAgain } = await Notifications.getPermissionsAsync();
   if (existing === 'granted') return true;
+  if (!canAskAgain) return false; // dialog would be suppressed by OS — caller must open Settings
   const { status } = await Notifications.requestPermissionsAsync();
   return status === 'granted';
+}
+
+/** Returns detailed status so UI can react (e.g. show "open Settings" button). */
+export async function getNotifPermStatus(): Promise<NotifPermResult> {
+  const { status, canAskAgain } = await Notifications.getPermissionsAsync();
+  if (status === 'granted') return 'granted';
+  if (!canAskAgain) return 'blocked';
+  return 'denied';
 }
 
 export async function scheduleNotification(

@@ -10,7 +10,7 @@ export interface Line {
   color: string;
   status: StatusType;
   note: string;
-  // campos extras vindos da API
+  isEncerrado?: boolean;
   situacao?: string;
   atualizadoHa?: string;
   estacoes?: string[];
@@ -39,7 +39,7 @@ export const FILTERS = [
   { id: 'favorites', label: 'Favoritos' },
   { id: 'metro', label: 'Metrô' },
   { id: 'cptm', label: 'CPTM' },
-  { id: 'issues', label: 'Com problema' },
+  { id: 'issues', label: 'Problemas' },
 ] as const;
 
 export type FilterId = (typeof FILTERS)[number]['id'];

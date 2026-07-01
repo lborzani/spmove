@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { theme, STATUS_META, textStyles } from '@/constants/theme';
+import { useRuntimeTheme } from '@/context/RuntimeThemeContext';
 import { LINE_META, fetchOcorrencias, todayISO, daysAgoISO } from '@/services/api';
 import { LineCodeBadge } from '@/components/LineBadge';
 import { QueryStateView } from '@/components/QueryStateView';
@@ -50,6 +51,7 @@ function dayLabel(isoDate: string): string {
 }
 
 export default function HistoryScreen() {
+  const { rt } = useRuntimeTheme();
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ['ocorrencias-3d', todayISO()],
     queryFn: () => fetchOcorrencias(daysAgoISO(2), todayISO()),
@@ -80,11 +82,11 @@ export default function HistoryScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={[styles.root, { backgroundColor: rt.bg }]}>
       <View style={styles.header}>
-        <Text style={textStyles.eyebrow}>ÚLTIMOS 3 DIAS</Text>
+        <Text style={[textStyles.eyebrow, { color: rt.textDim }]}>ÚLTIMOS 3 DIAS</Text>
         <Text style={textStyles.pageTitle}>Linha do tempo</Text>
-        {!isLoading && <Text style={styles.subtitle}>{today}</Text>}
+        {!isLoading && <Text style={[styles.subtitle, { color: rt.textDim }]}>{today}</Text>}
       </View>
 
       <QueryStateView
@@ -105,8 +107,8 @@ export default function HistoryScreen() {
             <RefreshControl
               refreshing={isRefetching}
               onRefresh={refetch}
-              tintColor={theme.accent}
-              colors={[theme.accent]}
+              tintColor={rt.accent}
+              colors={[rt.accent]}
             />
           }>
           {byDay.map(([isoDate, events]) => {
@@ -118,25 +120,38 @@ export default function HistoryScreen() {
               <View key={isoDate}>
                 {/* Day header */}
                 <View style={styles.dayHeader}>
-                  <Text style={styles.dayLabel}>{dayLabel(isoDate)}</Text>
-                  <View style={styles.dayDivider} />
-                  <Text style={styles.dayCount}>{events.length} ocorrências</Text>
+                  <Text style={[styles.dayLabel, { color: rt.text }]}>{dayLabel(isoDate)}</Text>
+                  <View style={[styles.dayDivider, { backgroundColor: rt.border }]} />
+                  <Text style={[styles.dayCount, { color: rt.textFaint }]}>
+                    {events.length} ocorrências
+                  </Text>
                 </View>
 
                 <View style={styles.timeline}>
-                  <View style={styles.axis} />
+                  <View style={[styles.axis, { backgroundColor: rt.border }]} />
 
                   {/* Fim do serviço */}
                   {serviceEnded && (
                     <View style={[styles.row, { alignItems: 'center' }]}>
                       <View style={styles.timeCol}>
-                        <Text style={styles.timeText}>{SERVICE_END}</Text>
+                        <Text style={[styles.timeText, { color: rt.textDim }]}>{SERVICE_END}</Text>
                       </View>
                       <View style={styles.nodeWrapper}>
-                        <View style={[styles.node, { borderColor: theme.textFaint }]} />
+                        <View
+                          style={[
+                            styles.node,
+                            { borderColor: rt.textFaint, backgroundColor: rt.bg },
+                          ]}
+                        />
                       </View>
-                      <View style={styles.boundaryMarker}>
-                        <Text style={styles.boundaryText}>FIM DO SERVIÇO</Text>
+                      <View
+                        style={[
+                          styles.boundaryMarker,
+                          { backgroundColor: rt.surface, borderColor: rt.border },
+                        ]}>
+                        <Text style={[styles.boundaryText, { color: rt.textDim }]}>
+                          FIM DO SERVIÇO
+                        </Text>
                       </View>
                     </View>
                   )}
@@ -150,23 +165,35 @@ export default function HistoryScreen() {
                     return (
                       <View key={o.id} style={styles.row}>
                         <View style={styles.timeCol}>
-                          <Text style={styles.timeText}>{o.at}</Text>
+                          <Text style={[styles.timeText, { color: rt.textDim }]}>{o.at}</Text>
                         </View>
                         <View style={styles.nodeWrapper}>
                           {isOngoing && <PulseRing color={meta.color} />}
-                          <View style={[styles.node, { borderColor: meta.color }]} />
+                          <View
+                            style={[
+                              styles.node,
+                              { borderColor: meta.color, backgroundColor: rt.bg },
+                            ]}
+                          />
                         </View>
                         <Pressable
                           onPress={() => router.push(`/line/${o.lineCode}`)}
-                          style={({ pressed }) => [styles.card, { opacity: pressed ? 0.75 : 1 }]}>
+                          style={({ pressed }) => [
+                            styles.card,
+                            {
+                              backgroundColor: rt.surface,
+                              borderColor: rt.border,
+                              opacity: pressed ? 0.75 : 1,
+                            },
+                          ]}>
                           <View style={styles.cardHeader}>
                             <LineCodeBadge
                               num={o.lineCode}
                               color={lineMeta?.color ?? '#888'}
                               size={22}
                             />
-                            <Text style={styles.lineName}>{o.lineName}</Text>
-                            <Text style={styles.lineNet}>{o.net}</Text>
+                            <Text style={[styles.lineName, { color: rt.text }]}>{o.lineName}</Text>
+                            <Text style={[styles.lineNet, { color: rt.textFaint }]}>{o.net}</Text>
                             <View style={styles.statusChip}>
                               {isOngoing ? (
                                 <Text
@@ -180,13 +207,17 @@ export default function HistoryScreen() {
                                   Em curso
                                 </Text>
                               ) : (
-                                <Text style={styles.resolvedLabel}>Registrado</Text>
+                                <Text style={[styles.resolvedLabel, { color: rt.textFaint }]}>
+                                  Registrado
+                                </Text>
                               )}
                             </View>
                           </View>
-                          <Text style={styles.cardTitle}>{o.situacao}</Text>
+                          <Text style={[styles.cardTitle, { color: rt.text }]}>{o.situacao}</Text>
                           {o.descricao ? (
-                            <Text style={styles.cardBody} numberOfLines={2}>
+                            <Text
+                              style={[styles.cardBody, { color: rt.textDim }]}
+                              numberOfLines={2}>
                               {o.descricao}
                             </Text>
                           ) : null}
@@ -198,13 +229,21 @@ export default function HistoryScreen() {
                   {/* Início do serviço */}
                   <View style={[styles.row, { alignItems: 'center' }]}>
                     <View style={styles.timeCol}>
-                      <Text style={styles.timeText}>{SERVICE_START}</Text>
+                      <Text style={[styles.timeText, { color: rt.textDim }]}>{SERVICE_START}</Text>
                     </View>
                     <View style={styles.nodeWrapper}>
-                      <View style={[styles.node, { borderColor: theme.textFaint }]} />
+                      <View
+                        style={[styles.node, { borderColor: rt.textFaint, backgroundColor: rt.bg }]}
+                      />
                     </View>
-                    <View style={styles.boundaryMarker}>
-                      <Text style={styles.boundaryText}>INÍCIO DO SERVIÇO</Text>
+                    <View
+                      style={[
+                        styles.boundaryMarker,
+                        { backgroundColor: rt.surface, borderColor: rt.border },
+                      ]}>
+                      <Text style={[styles.boundaryText, { color: rt.textDim }]}>
+                        INÍCIO DO SERVIÇO
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -218,9 +257,9 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.bg },
+  root: { flex: 1 },
   header: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
-  subtitle: { color: theme.textDim, fontSize: 12.5, marginTop: 2 },
+  subtitle: { fontSize: 12.5, marginTop: 2 },
 
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 40 },
@@ -233,9 +272,9 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 4,
   },
-  dayLabel: { color: theme.text, fontSize: 14, fontWeight: '700' },
-  dayDivider: { flex: 1, height: 1, backgroundColor: theme.border },
-  dayCount: { color: theme.textFaint, fontSize: 11 },
+  dayLabel: { fontSize: 14, fontWeight: '700' },
+  dayDivider: { flex: 1, height: 1 },
+  dayCount: { fontSize: 11 },
 
   timeline: { paddingHorizontal: 18, paddingTop: 8, position: 'relative' },
   axis: {
@@ -244,11 +283,10 @@ const styles = StyleSheet.create({
     top: 24,
     bottom: 24,
     width: 2,
-    backgroundColor: theme.border,
   },
   row: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   timeCol: { width: 40, paddingTop: 12, flexShrink: 0 },
-  timeText: { color: theme.textDim, fontSize: 11, fontWeight: '600', textAlign: 'right' },
+  timeText: { fontSize: 11, fontWeight: '600', textAlign: 'right' },
   nodeWrapper: {
     width: 16,
     paddingTop: 12,
@@ -262,7 +300,6 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 7,
     borderWidth: 3,
-    backgroundColor: theme.bg,
     zIndex: 1,
   },
   pulseRing: {
@@ -276,15 +313,13 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: theme.border,
     borderRadius: theme.radiusCard,
     padding: 12,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  lineName: { color: theme.text, fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
-  lineNet: { color: theme.textFaint, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 },
+  lineName: { fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
+  lineNet: { fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 },
   statusChip: { marginLeft: 'auto' },
   ongoingLabel: {
     fontSize: 10,
@@ -296,20 +331,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   resolvedLabel: {
-    color: theme.textFaint,
     fontSize: 10,
     fontWeight: '500',
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
-  cardTitle: { color: theme.text, fontSize: 13.5, fontWeight: '600', lineHeight: 18 },
-  cardBody: { color: theme.textDim, fontSize: 12.5, lineHeight: 17, marginTop: 3 },
+  cardTitle: { fontSize: 13.5, fontWeight: '600', lineHeight: 18 },
+  cardBody: { fontSize: 12.5, lineHeight: 17, marginTop: 3 },
 
   boundaryMarker: {
     flex: 1,
-    backgroundColor: theme.surfaceElev,
     borderWidth: 1,
-    borderColor: theme.border,
     borderStyle: 'dashed',
     borderRadius: 10,
     paddingVertical: 10,
@@ -318,7 +350,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   boundaryText: {
-    color: theme.textDim,
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 1,

@@ -7,6 +7,7 @@ import {
 import { getGlobalEnabled } from '@/constants/notifPrefs';
 import { registerWithBackend } from '@/services/pushRegistration';
 import { getFavorites } from '@/constants/favPrefs';
+import { configureAndroidWidget } from '@/services/widgetSync';
 import { View, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -23,9 +24,9 @@ import {
 } from '@expo-google-fonts/space-grotesk';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
-import { theme } from '@/constants/theme';
 import { ONBOARDED_KEY } from '@/constants/storage';
 import { SubscriptionProvider } from '@/context/SubscriptionContext';
+import { RuntimeThemeProvider, useRuntimeTheme } from '@/context/RuntimeThemeContext';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -41,6 +42,7 @@ const queryClient = new QueryClient({
 });
 
 function AppNavigator() {
+  const { rt } = useRuntimeTheme();
   const [ready, setReady] = useState(false);
   const [fontsLoaded] = useFonts({
     SpaceGrotesk_400Regular,
@@ -69,6 +71,15 @@ function AppNavigator() {
     }
     setupNotificationHandler();
     setupAndroidChannel();
+    if (Platform.OS === 'android') {
+      getFavorites().then((favs) => {
+        configureAndroidWidget(
+          process.env.EXPO_PUBLIC_BACKEND_URL ?? '',
+          process.env.EXPO_PUBLIC_BACKEND_KEY ?? '',
+          favs,
+        );
+      });
+    }
     (async () => {
       const granted = await requestNotificationPermissions();
       if (!granted) return;
@@ -97,7 +108,7 @@ function AppNavigator() {
     })();
   }, [ready]);
 
-  if (!ready) return <View style={{ flex: 1, backgroundColor: theme.bg }} />;
+  if (!ready) return <View style={{ flex: 1, backgroundColor: rt.bg }} />;
 
   return (
     <>
@@ -105,7 +116,7 @@ function AppNavigator() {
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: theme.bg },
+          contentStyle: { backgroundColor: rt.bg },
           animation: 'slide_from_right',
         }}>
         <Stack.Screen name="onboarding" options={{ animation: 'none' }} />
@@ -130,9 +141,11 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <SubscriptionProvider>
-            <BottomSheetModalProvider>
-              <AppNavigator />
-            </BottomSheetModalProvider>
+            <RuntimeThemeProvider>
+              <BottomSheetModalProvider>
+                <AppNavigator />
+              </BottomSheetModalProvider>
+            </RuntimeThemeProvider>
           </SubscriptionProvider>
         </QueryClientProvider>
       </SafeAreaProvider>

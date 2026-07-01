@@ -5,6 +5,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery } from '@tanstack/react-query';
 import { theme, STATUS_META, textStyles } from '@/constants/theme';
+import { useRuntimeTheme } from '@/context/RuntimeThemeContext';
 import { STATIONS_FALLBACK, STATION_TRANSFERS } from '@/constants/data';
 import { fetchStatus, fetchOcorrencias, LINE_META, todayISO, daysAgoISO } from '@/services/api';
 import { StatusDot } from '@/components/StatusDot';
@@ -18,6 +19,7 @@ import { registerWithBackend } from '@/services/pushRegistration';
 type Tab = 'stations' | 'reports';
 
 export default function LineDetailScreen() {
+  const { rt } = useRuntimeTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const lineCode = id ?? '';
 
@@ -60,13 +62,13 @@ export default function LineDetailScreen() {
 
   if (statusLoading) {
     return (
-      <SafeAreaView style={styles.root}>
+      <SafeAreaView style={[styles.root, { backgroundColor: rt.bg }]}>
         <Pressable onPress={() => router.back()} style={styles.topBackBtn}>
-          <IcoArrowLeft size={18} color={theme.text} strokeWidth={2.2} />
+          <IcoArrowLeft size={18} color={rt.text} strokeWidth={2.2} />
         </Pressable>
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color={theme.accent} />
-          <Text style={styles.loadingText}>Carregando…</Text>
+          <ActivityIndicator size="large" color={rt.accent} />
+          <Text style={[styles.loadingText, { color: rt.textDim }]}>Carregando…</Text>
         </View>
       </SafeAreaView>
     );
@@ -74,12 +76,14 @@ export default function LineDetailScreen() {
 
   if (!line || !lineMeta) {
     return (
-      <SafeAreaView style={styles.root}>
+      <SafeAreaView style={[styles.root, { backgroundColor: rt.bg }]}>
         <Pressable onPress={() => router.back()} style={styles.topBackBtn}>
-          <IcoArrowLeft size={18} color={theme.text} strokeWidth={2.2} />
+          <IcoArrowLeft size={18} color={rt.text} strokeWidth={2.2} />
         </Pressable>
         <View style={styles.centered}>
-          <Text style={styles.errorText}>Linha {lineCode} não encontrada.</Text>
+          <Text style={[styles.errorText, { color: rt.textDim }]}>
+            Linha {lineCode} não encontrada.
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -88,7 +92,7 @@ export default function LineDetailScreen() {
   const meta = STATUS_META[line.status];
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={[styles.root, { backgroundColor: rt.bg }]}>
       <LinearGradient
         colors={[line.color, `${line.color}cc`]}
         start={{ x: 0, y: 0 }}
@@ -126,11 +130,16 @@ export default function LineDetailScreen() {
         </View>
       </LinearGradient>
 
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { borderBottomColor: rt.border, backgroundColor: rt.bg }]}>
         <Pressable
           style={[styles.tabBtn, activeTab === 'stations' && styles.tabBtnActive]}
           onPress={() => setActiveTab('stations')}>
-          <Text style={[styles.tabLabel, activeTab === 'stations' && styles.tabLabelActive]}>
+          <Text
+            style={[
+              styles.tabLabel,
+              { color: rt.textDim },
+              activeTab === 'stations' && { color: rt.text },
+            ]}>
             ESTAÇÕES
           </Text>
           {activeTab === 'stations' && (
@@ -140,7 +149,12 @@ export default function LineDetailScreen() {
         <Pressable
           style={[styles.tabBtn, activeTab === 'reports' && styles.tabBtnActive]}
           onPress={() => setActiveTab('reports')}>
-          <Text style={[styles.tabLabel, activeTab === 'reports' && styles.tabLabelActive]}>
+          <Text
+            style={[
+              styles.tabLabel,
+              { color: rt.textDim },
+              activeTab === 'reports' && { color: rt.text },
+            ]}>
             RELATOS
           </Text>
           {activeTab === 'reports' && (
@@ -156,15 +170,20 @@ export default function LineDetailScreen() {
           showsVerticalScrollIndicator={false}>
           {stations.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>ESTAÇÕES</Text>
+              <Text style={[styles.sectionTitle, { color: rt.textDim }]}>ESTAÇÕES</Text>
               <View style={styles.stationList}>
                 <View style={[styles.stationRail, { backgroundColor: line.color }]} />
                 {stations.map((st, i) => {
                   const transfers = getTransfers(st);
                   return (
                     <View key={i} style={styles.stationRow}>
-                      <View style={[styles.stationDot, { borderColor: line.color }]} />
-                      <Text style={styles.stationName}>{st}</Text>
+                      <View
+                        style={[
+                          styles.stationDot,
+                          { borderColor: line.color, backgroundColor: rt.bg },
+                        ]}
+                      />
+                      <Text style={[styles.stationName, { color: rt.text }]}>{st}</Text>
                       {transfers.length > 0 && (
                         <View style={styles.transferBadges}>
                           {transfers.map((n) => (
@@ -186,27 +205,34 @@ export default function LineDetailScreen() {
 
           {histLoading ? (
             <View style={{ padding: 18, alignItems: 'center' }}>
-              <ActivityIndicator size="small" color={theme.accent} />
+              <ActivityIndicator size="small" color={rt.accent} />
             </View>
           ) : lineHist.length > 0 ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>OCORRÊNCIAS HOJE</Text>
+              <Text style={[styles.sectionTitle, { color: rt.textDim }]}>OCORRÊNCIAS HOJE</Text>
               <View style={styles.histList}>
                 {lineHist.map((o) => {
                   const hMeta = STATUS_META[o.status];
                   return (
-                    <View key={o.id} style={styles.histCard}>
+                    <View
+                      key={o.id}
+                      style={[
+                        styles.histCard,
+                        { backgroundColor: rt.surface, borderColor: rt.border },
+                      ]}>
                       <View style={styles.histMeta}>
                         <StatusDot status={o.status} size={8} />
-                        <Text style={styles.histTime}>{o.at}</Text>
+                        <Text style={[styles.histTime, { color: rt.textDim }]}>{o.at}</Text>
                         {o.status !== 'normal' && (
                           <Text style={[styles.ongoingTag, { color: hMeta.color }]}>
                             · EM CURSO
                           </Text>
                         )}
                       </View>
-                      <Text style={styles.histTitle}>{o.situacao}</Text>
-                      {o.descricao ? <Text style={styles.histBody}>{o.descricao}</Text> : null}
+                      <Text style={[styles.histTitle, { color: rt.text }]}>{o.situacao}</Text>
+                      {o.descricao ? (
+                        <Text style={[styles.histBody, { color: rt.textDim }]}>{o.descricao}</Text>
+                      ) : null}
                     </View>
                   );
                 })}
@@ -214,8 +240,10 @@ export default function LineDetailScreen() {
             </View>
           ) : (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>OCORRÊNCIAS HOJE</Text>
-              <Text style={styles.noHistText}>Sem ocorrências registradas hoje nesta linha.</Text>
+              <Text style={[styles.sectionTitle, { color: rt.textDim }]}>OCORRÊNCIAS HOJE</Text>
+              <Text style={[styles.noHistText, { color: rt.textDim }]}>
+                Sem ocorrências registradas hoje nesta linha.
+              </Text>
             </View>
           )}
         </ScrollView>
@@ -227,22 +255,20 @@ export default function LineDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.bg },
+  root: { flex: 1 },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 40 },
 
   topBackBtn: { margin: 16 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 40 },
-  loadingText: { color: theme.textDim, fontSize: 13 },
-  errorText: { color: theme.textDim, fontSize: 14 },
+  loadingText: { fontSize: 13 },
+  errorText: { fontSize: 14 },
 
   header: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 22 },
 
   tabBar: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: theme.border,
-    backgroundColor: theme.bg,
   },
   tabBtn: {
     flex: 1,
@@ -255,9 +281,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 1.2,
-    color: theme.textDim,
   },
-  tabLabelActive: { color: theme.text },
+  tabLabelActive: {},
   tabIndicator: {
     position: 'absolute',
     bottom: 0,
@@ -316,7 +341,7 @@ const styles = StyleSheet.create({
 
   section: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 6 },
   sectionTitle: { ...textStyles.eyebrow, marginBottom: 12 },
-  noHistText: { color: theme.textDim, fontSize: 13 },
+  noHistText: { fontSize: 13 },
 
   stationList: { paddingLeft: 18, position: 'relative' },
   stationRail: { position: 'absolute', left: 5, top: 6, bottom: 6, width: 3, borderRadius: 2 },
@@ -332,23 +357,20 @@ const styles = StyleSheet.create({
     width: 13,
     height: 13,
     borderRadius: 7,
-    backgroundColor: theme.bg,
     borderWidth: 3,
   },
-  stationName: { color: theme.text, fontSize: 14, fontWeight: '500' },
+  stationName: { fontSize: 14, fontWeight: '500' },
   transferBadges: { flexDirection: 'row', gap: 4, marginLeft: 8 },
 
   histList: { gap: 8 },
   histCard: {
-    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: theme.border,
     borderRadius: theme.radiusCard,
     padding: 12,
   },
   histMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  histTime: { color: theme.textDim, fontSize: 11, fontWeight: '600' },
+  histTime: { fontSize: 11, fontWeight: '600' },
   ongoingTag: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
-  histTitle: { color: theme.text, fontSize: 14, fontWeight: '600' },
-  histBody: { color: theme.textDim, fontSize: 12.5, marginTop: 2, lineHeight: 17 },
+  histTitle: { fontSize: 14, fontWeight: '600' },
+  histBody: { fontSize: 12.5, marginTop: 2, lineHeight: 17 },
 });

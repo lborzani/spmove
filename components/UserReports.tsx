@@ -8,6 +8,7 @@ import {
 } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import { theme } from '@/constants/theme';
+import { useRuntimeTheme } from '@/context/RuntimeThemeContext';
 import { IcoThumbUp, IcoThumbDown, IcoPlus } from './Icons';
 import {
   fetchReports,
@@ -42,11 +43,12 @@ interface ReportCardProps {
 }
 
 function ReportCard({ report, onVote }: ReportCardProps) {
+  const { rt } = useRuntimeTheme();
   const cfg = CATEGORY_CONFIG[report.category];
   const isPromoted = report.promoted === 1;
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: rt.surface, borderColor: rt.border }]}>
       <View style={styles.cardHeader}>
         <View
           style={[
@@ -55,36 +57,63 @@ function ReportCard({ report, onVote }: ReportCardProps) {
           ]}>
           <Text style={[styles.catLabel, { color: cfg.color }]}>{cfg.label}</Text>
         </View>
-        {report.station && <Text style={styles.stationTag}>{report.station}</Text>}
+        {report.station && (
+          <Text
+            style={[
+              styles.stationTag,
+              { color: rt.textDim, backgroundColor: rt.bg, borderColor: rt.border },
+            ]}>
+            {report.station}
+          </Text>
+        )}
         {isPromoted && (
-          <View style={styles.confirmedBadge}>
-            <Text style={styles.confirmedText}>CONFIRMADO</Text>
+          <View
+            style={[
+              styles.confirmedBadge,
+              { backgroundColor: `${rt.accent}22`, borderColor: `${rt.accent}55` },
+            ]}>
+            <Text style={[styles.confirmedText, { color: rt.accent }]}>CONFIRMADO</Text>
           </View>
         )}
-        <Text style={styles.timeText}>{timeAgo(report.created_at)}</Text>
+        <Text style={[styles.timeText, { color: rt.textFaint }]}>{timeAgo(report.created_at)}</Text>
       </View>
 
-      {report.description ? <Text style={styles.cardDesc}>{report.description}</Text> : null}
+      {report.description ? (
+        <Text style={[styles.cardDesc, { color: rt.text }]}>{report.description}</Text>
+      ) : null}
 
       <View style={styles.voteRow}>
         <Pressable
           onPress={() => onVote(report.id, 1)}
-          style={[styles.voteBtn, report.my_vote === 1 && styles.voteBtnActive]}>
+          style={[
+            styles.voteBtn,
+            { borderColor: rt.border },
+            report.my_vote === 1 && { borderColor: rt.accent, backgroundColor: `${rt.accent}11` },
+          ]}>
           <IcoThumbUp
             size={14}
-            color={report.my_vote === 1 ? theme.accent : theme.textDim}
+            color={report.my_vote === 1 ? rt.accent : rt.textDim}
             strokeWidth={2}
           />
-          <Text style={[styles.voteCount, report.my_vote === 1 && { color: theme.accent }]}>
+          <Text
+            style={[
+              styles.voteCount,
+              { color: rt.textDim },
+              report.my_vote === 1 && { color: rt.accent },
+            ]}>
             {Math.max(0, report.net_votes)}
           </Text>
         </Pressable>
         <Pressable
           onPress={() => onVote(report.id, -1)}
-          style={[styles.voteBtn, report.my_vote === -1 && styles.voteBtnActive]}>
+          style={[
+            styles.voteBtn,
+            { borderColor: rt.border },
+            report.my_vote === -1 && { borderColor: rt.accent, backgroundColor: `${rt.accent}11` },
+          ]}>
           <IcoThumbDown
             size={14}
-            color={report.my_vote === -1 ? '#ef4444' : theme.textDim}
+            color={report.my_vote === -1 ? '#ef4444' : rt.textDim}
             strokeWidth={2}
           />
         </Pressable>
@@ -101,6 +130,7 @@ interface CreateSheetProps {
 }
 
 function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProps) {
+  const { rt } = useRuntimeTheme();
   const [category, setCategory] = useState<ReportCategory>('atraso');
   const [station, setStation] = useState<string | null>(null);
   const [description, setDescription] = useState('');
@@ -154,13 +184,13 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
       backdropComponent={renderBackdrop}
-      backgroundStyle={{ backgroundColor: theme.bg }}
-      handleIndicatorStyle={{ backgroundColor: theme.border }}>
+      backgroundStyle={{ backgroundColor: rt.bg }}
+      handleIndicatorStyle={{ backgroundColor: rt.border }}>
       <BottomSheetScrollView
         contentContainerStyle={styles.sheetContent}
         keyboardShouldPersistTaps="handled">
-        <Text style={styles.modalTitle}>Reportar ocorrência</Text>
-        <Text style={styles.modalSubtitle}>CATEGORIA</Text>
+        <Text style={[styles.modalTitle, { color: rt.text }]}>Reportar ocorrência</Text>
+        <Text style={[styles.modalSubtitle, { color: rt.textDim }]}>CATEGORIA</Text>
         <View style={styles.catChips}>
           {CATEGORIES.map((cat) => {
             const cfg = CATEGORY_CONFIG[cat];
@@ -171,10 +201,10 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
                 onPress={() => setCategory(cat)}
                 style={[
                   styles.catChip,
-                  { borderColor: active ? cfg.color : theme.border },
+                  { borderColor: active ? cfg.color : rt.border },
                   active && { backgroundColor: `${cfg.color}22` },
                 ]}>
-                <Text style={[styles.catChipText, { color: active ? cfg.color : theme.textDim }]}>
+                <Text style={[styles.catChipText, { color: active ? cfg.color : rt.textDim }]}>
                   {cfg.label}
                 </Text>
               </Pressable>
@@ -184,12 +214,21 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
 
         {stations.length > 0 && (
           <>
-            <Text style={styles.modalSubtitle}>ESTAÇÃO (opcional)</Text>
+            <Text style={[styles.modalSubtitle, { color: rt.textDim }]}>ESTAÇÃO (opcional)</Text>
             <View style={styles.stationChips}>
               <Pressable
                 onPress={() => setStation(null)}
-                style={[styles.stationChip, !station && styles.stationChipActive]}>
-                <Text style={[styles.stationChipText, !station && styles.stationChipTextActive]}>
+                style={[
+                  styles.stationChip,
+                  { borderColor: rt.border },
+                  !station && { borderColor: rt.accent, backgroundColor: `${rt.accent}18` },
+                ]}>
+                <Text
+                  style={[
+                    styles.stationChipText,
+                    { color: rt.textDim },
+                    !station && { color: rt.accent, fontWeight: '700' },
+                  ]}>
                   Geral
                 </Text>
               </Pressable>
@@ -197,9 +236,17 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
                 <Pressable
                   key={s}
                   onPress={() => setStation(s)}
-                  style={[styles.stationChip, station === s && styles.stationChipActive]}>
+                  style={[
+                    styles.stationChip,
+                    { borderColor: rt.border },
+                    station === s && { borderColor: rt.accent, backgroundColor: `${rt.accent}18` },
+                  ]}>
                   <Text
-                    style={[styles.stationChipText, station === s && styles.stationChipTextActive]}>
+                    style={[
+                      styles.stationChipText,
+                      { color: rt.textDim },
+                      station === s && { color: rt.accent, fontWeight: '700' },
+                    ]}>
                     {s}
                   </Text>
                 </Pressable>
@@ -208,11 +255,14 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
           </>
         )}
 
-        <Text style={styles.modalSubtitle}>DESCRIÇÃO (opcional)</Text>
+        <Text style={[styles.modalSubtitle, { color: rt.textDim }]}>DESCRIÇÃO (opcional)</Text>
         <BottomSheetTextInput
-          style={styles.textInput}
+          style={[
+            styles.textInput,
+            { backgroundColor: rt.surface, borderColor: rt.border, color: rt.text },
+          ]}
           placeholder="O que está acontecendo?"
-          placeholderTextColor={theme.textFaint}
+          placeholderTextColor={rt.textFaint}
           value={description}
           onChangeText={setDescription}
           maxLength={280}
@@ -223,7 +273,7 @@ function CreateSheet({ lineNum, stations, sheetRef, onCreated }: CreateSheetProp
         <View style={styles.modalActions}>
           <Pressable
             onPress={handleSubmit}
-            style={[styles.submitBtn, loading && { opacity: 0.6 }]}
+            style={[styles.submitBtn, { backgroundColor: rt.accent }, loading && { opacity: 0.6 }]}
             disabled={loading}>
             {loading ? (
               <ActivityIndicator size="small" color="#000" />
@@ -243,6 +293,7 @@ interface Props {
 }
 
 export function UserReports({ lineNum, stations = [] }: Props) {
+  const { rt } = useRuntimeTheme();
   const [reports, setReports] = useState<UserReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [deviceId, setDeviceId] = useState('');
@@ -307,17 +358,24 @@ export function UserReports({ lineNum, stations = [] }: Props) {
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>RELATOS DE USUÁRIOS</Text>
-        <Pressable onPress={() => sheetRef.current?.present()} style={styles.addBtn}>
-          <IcoPlus size={14} color={theme.accent} strokeWidth={2.5} />
-          <Text style={styles.addBtnText}>Reportar</Text>
+        <Text style={[styles.sectionTitle, { color: rt.textDim }]}>RELATOS DE USUÁRIOS</Text>
+        <Pressable
+          onPress={() => sheetRef.current?.present()}
+          style={[
+            styles.addBtn,
+            { borderColor: `${rt.accent}66`, backgroundColor: `${rt.accent}11` },
+          ]}>
+          <IcoPlus size={14} color={rt.accent} strokeWidth={2.5} />
+          <Text style={[styles.addBtnText, { color: rt.accent }]}>Reportar</Text>
         </Pressable>
       </View>
 
       {loading ? (
-        <ActivityIndicator size="small" color={theme.accent} style={{ marginTop: 8 }} />
+        <ActivityIndicator size="small" color={rt.accent} style={{ marginTop: 8 }} />
       ) : reports.length === 0 ? (
-        <Text style={styles.emptyText}>Nenhum relato ativo nesta linha.</Text>
+        <Text style={[styles.emptyText, { color: rt.textFaint }]}>
+          Nenhum relato ativo nesta linha.
+        </Text>
       ) : (
         <View style={styles.list}>
           {reports.map((r) => (
@@ -345,7 +403,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    color: theme.textDim,
     fontSize: 11,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
@@ -359,18 +416,14 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: `${theme.accent}66`,
-    backgroundColor: `${theme.accent}11`,
   },
-  addBtnText: { color: theme.accent, fontSize: 12, fontWeight: '600' },
+  addBtnText: { fontSize: 12, fontWeight: '600' },
 
   list: { gap: 8 },
-  emptyText: { color: theme.textFaint, fontSize: 12 },
+  emptyText: { fontSize: 12 },
 
   card: {
-    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: theme.border,
     borderRadius: theme.radiusCard,
     padding: 12,
     gap: 8,
@@ -387,13 +440,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 6,
-    backgroundColor: `${theme.accent}22`,
     borderWidth: 1,
-    borderColor: `${theme.accent}55`,
   },
-  confirmedText: { fontSize: 9, fontWeight: '700', color: theme.accent, letterSpacing: 0.5 },
-  timeText: { color: theme.textFaint, fontSize: 11, marginLeft: 'auto' },
-  cardDesc: { color: theme.text, fontSize: 13, lineHeight: 18 },
+  confirmedText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
+  timeText: { fontSize: 11, marginLeft: 'auto' },
+  cardDesc: { fontSize: 13, lineHeight: 18 },
   voteRow: { flexDirection: 'row', gap: 8 },
   voteBtn: {
     flexDirection: 'row',
@@ -403,30 +454,25 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.border,
   },
-  voteBtnActive: { borderColor: theme.accent, backgroundColor: `${theme.accent}11` },
-  voteCount: { color: theme.textDim, fontSize: 12, fontWeight: '600' },
+  voteBtnActive: {},
+  voteCount: { fontSize: 12, fontWeight: '600' },
 
   sheetContent: { paddingHorizontal: 20, paddingBottom: 36, gap: 12 },
-  modalTitle: { color: theme.text, fontSize: 16, fontWeight: '700' },
+  modalTitle: { fontSize: 16, fontWeight: '700' },
   modalSubtitle: {
-    color: theme.textDim,
     fontSize: 10,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
     fontWeight: '600',
   },
   stationTag: {
-    color: theme.textDim,
     fontSize: 10,
     fontWeight: '500',
-    backgroundColor: theme.bg,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: theme.border,
   },
   stationChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   stationChip: {
@@ -434,15 +480,11 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.border,
     backgroundColor: 'transparent',
   },
-  stationChipActive: {
-    borderColor: theme.accent,
-    backgroundColor: `${theme.accent}18`,
-  },
-  stationChipText: { color: theme.textDim, fontSize: 11, fontWeight: '500' },
-  stationChipTextActive: { color: theme.accent, fontWeight: '700' },
+  stationChipActive: {},
+  stationChipText: { fontSize: 11, fontWeight: '500' },
+  stationChipTextActive: {},
 
   catChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   catChip: {
@@ -453,19 +495,15 @@ const styles = StyleSheet.create({
   },
   catChipText: { fontSize: 12, fontWeight: '600' },
   textInput: {
-    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: theme.border,
     borderRadius: theme.radiusCard,
     padding: 12,
-    color: theme.text,
     fontSize: 14,
     minHeight: 72,
     textAlignVertical: 'top',
   },
   modalActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   submitBtn: {
-    backgroundColor: theme.accent,
     paddingHorizontal: 24,
     paddingVertical: 10,
     borderRadius: 10,

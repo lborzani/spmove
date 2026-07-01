@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { theme, STATUS_META, textStyles } from '@/constants/theme';
+import { useRuntimeTheme } from '@/context/RuntimeThemeContext';
 import { LINE_META, fetchOcorrencias, todayISO, daysAgoISO } from '@/services/api';
 import { IcoAlert, IcoLightning, IcoInfo } from '@/components/Icons';
 import { LineCodeBadge } from '@/components/LineBadge';
@@ -37,6 +38,7 @@ function SevIcon({ severity, size = 20 }: { severity: RichOcorrencia['severity']
 // ── componente ───────────────────────────────────────────────────────────────
 
 export default function AlertsScreen() {
+  const { rt } = useRuntimeTheme();
   const [filter, setFilter] = useState<SeverityFilter>('all');
   const [read, setRead] = useState<Set<number>>(new Set());
 
@@ -69,18 +71,18 @@ export default function AlertsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={[styles.root, { backgroundColor: rt.bg }]}>
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={textStyles.eyebrow}>CENTRO DE ALERTAS</Text>
+          <Text style={[textStyles.eyebrow, { color: rt.textDim }]}>CENTRO DE ALERTAS</Text>
           <Text style={textStyles.pageTitle}>
             {isLoading ? 'Carregando…' : unread > 0 ? `${unread} alertas` : 'Tudo lido'}
           </Text>
         </View>
         {ocorrencias.length > 0 && (
           <Pressable onPress={() => setRead(new Set(ocorrencias.map((o) => o.id)))}>
-            <Text style={styles.markAllBtn}>Marcar todas</Text>
+            <Text style={[styles.markAllBtn, { color: rt.accent }]}>Marcar todas</Text>
           </Pressable>
         )}
       </View>
@@ -100,11 +102,11 @@ export default function AlertsScreen() {
               style={[
                 styles.chip,
                 {
-                  backgroundColor: active ? theme.chipActive : 'transparent',
-                  borderColor: active ? theme.chipActive : theme.border,
+                  backgroundColor: active ? rt.chipActive : 'transparent',
+                  borderColor: active ? rt.chipActive : rt.border,
                 },
               ]}>
-              <Text style={[styles.chipText, { color: active ? theme.onChipActive : theme.text }]}>
+              <Text style={[styles.chipText, { color: active ? rt.onChipActive : rt.text }]}>
                 {SEV_LABELS[f.id]}
                 {f.id === 'all' ? ` · ${f.count}` : ''}
               </Text>
@@ -129,13 +131,13 @@ export default function AlertsScreen() {
             <RefreshControl
               refreshing={isRefetching}
               onRefresh={refetch}
-              tintColor={theme.accent}
-              colors={[theme.accent]}
+              tintColor={rt.accent}
+              colors={[rt.accent]}
             />
           }>
           {filtered.length === 0 ? (
             <View style={styles.centered}>
-              <Text style={styles.emptyText}>
+              <Text style={[styles.emptyText, { color: rt.textDim }]}>
                 {filter === 'all'
                   ? 'Nenhuma ocorrência hoje.'
                   : `Sem alertas do tipo "${SEV_LABELS[filter]}".`}
@@ -156,7 +158,11 @@ export default function AlertsScreen() {
                   }}
                   style={({ pressed }) => [
                     styles.card,
-                    { opacity: isRead ? 0.55 : pressed ? 0.8 : 1 },
+                    {
+                      backgroundColor: rt.surface,
+                      borderColor: rt.border,
+                      opacity: isRead ? 0.55 : pressed ? 0.8 : 1,
+                    },
                   ]}>
                   {/* severity strip */}
                   <View style={[styles.strip, { backgroundColor: meta.color }]} />
@@ -170,13 +176,15 @@ export default function AlertsScreen() {
                     {/* meta row */}
                     <View style={styles.metaRow}>
                       <LineCodeBadge num={o.lineCode} color={lineMeta?.color ?? '#888'} size={22} />
-                      <Text style={styles.metaText} numberOfLines={1}>
+                      <Text style={[styles.metaText, { color: rt.textDim }]} numberOfLines={1}>
                         {o.net} · {o.lineName} · {o.at}
                       </Text>
-                      {!isRead && <View style={styles.unreadDot} />}
+                      {!isRead && (
+                        <View style={[styles.unreadDot, { backgroundColor: rt.accent }]} />
+                      )}
                     </View>
-                    <Text style={styles.notifTitle}>{o.situacao}</Text>
-                    <Text style={styles.notifBody} numberOfLines={2}>
+                    <Text style={[styles.notifTitle, { color: rt.text }]}>{o.situacao}</Text>
+                    <Text style={[styles.notifBody, { color: rt.textDim }]} numberOfLines={2}>
                       {o.descricao}
                     </Text>
                   </View>
@@ -191,7 +199,7 @@ export default function AlertsScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.bg },
+  root: { flex: 1 },
 
   header: {
     flexDirection: 'row',
@@ -201,7 +209,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 8,
   },
-  markAllBtn: { color: theme.accent, fontSize: 12.5, fontWeight: '600', paddingBottom: 4 },
+  markAllBtn: { fontSize: 12.5, fontWeight: '600', paddingBottom: 4 },
 
   filtersScroll: { flexGrow: 0 },
   filtersContainer: { paddingHorizontal: 18, paddingVertical: 10, gap: 8, flexDirection: 'row' },
@@ -217,12 +225,10 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 18, paddingBottom: 32, gap: 8 },
 
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
-  emptyText: { color: theme.textDim, fontSize: 13, textAlign: 'center' },
+  emptyText: { fontSize: 13, textAlign: 'center' },
 
   card: {
-    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: theme.border,
     borderRadius: theme.radiusCard,
     padding: 14,
     flexDirection: 'row',
@@ -243,20 +249,18 @@ const styles = StyleSheet.create({
 
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   metaText: {
-    color: theme.textDim,
     fontSize: 11,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
     flex: 1,
   },
-  unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.accent },
+  unreadDot: { width: 6, height: 6, borderRadius: 3 },
 
   notifTitle: {
-    color: theme.text,
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: -0.2,
     lineHeight: 18,
   },
-  notifBody: { color: theme.textDim, fontSize: 12.5, marginTop: 4, lineHeight: 18 },
+  notifBody: { fontSize: 12.5, marginTop: 4, lineHeight: 18 },
 });
